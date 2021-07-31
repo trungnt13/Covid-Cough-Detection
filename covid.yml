@@ -1,0 +1,25 @@
+name: covid
+channels:
+  - conda-forge
+  - defaults
+
+dependencies:
+  - pip=21.1.3
+  - python=3.7.10
+
+  - pip:
+    - librosa==0.8.1
+    - matplotlib==3.4.2
+    - numba==0.53.1
+    - numpy==1.21.0
+    - pandas==1.2.5
+    - pyro-ppl==1.6.0
+    - scikit-learn==0.24.2
+    - scipy==1.7.0
+    - seaborn==0.11.1
+    - sidekit==1.3.8.5.2
+    - soundfile==0.10.3.post1
+    - torch==1.9.0+cu111
+    - torchaudio==0.9.0
+    - torchvision==0.10.0+cu111
+    - speechbrain==0.5.9
