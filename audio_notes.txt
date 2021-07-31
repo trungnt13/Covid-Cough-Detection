@@ -1,0 +1,221 @@
+không                                              78
+không nhận dạng được                               13
+có tiếng người nói                                 9
+không rõ                                           8
+nhiễu không xác định ở đầu âm thanh (âm thanh yếu) 8
+không có âm thanh                                  7
+âm thanh hít vào trước khi ho (yếu)                6
+hít vào âm thanh trước khi ho                      6
+tiếng hít vào                                      5
+thở                                                5
+tiếng ồn không xác định từ môi trường xung quanh trong quá trình phát âm thanh (âm thanh yếu) 5
+giống tiếng gió, ít                                5
+tiếng ồn không xác định từ môi trường xung quanh trong quá trình phát âm thanh (âm thanh bình thường) 5
+Nghe như có tiếng vọng                             4
+tiếng ồn khi nhấp chuột ở đầu                      4
+có tiếng thở                                       4
+audio có lẫn tiếng gió                             4
+nhiều tiếng ồn xung quanh                          4
+[{'text': ['Không xác định']}]                     4
+lấy hơi                                            3
+tiếng ù âm thanh (mức độ vừa)                      3
+tiếng ồn của giấy                                  3
+tiếng nói phía xa                                  3
+âm thanh hít vào trước khi ho                      3
+ho khan                                            3
+không rõ tạp âm                                    3
+âm thanh hít vào trước khi ho (bình thường)        3
+tiếng ù âm thanh xuyên suốt audio( mức độ vừa)     3
+tiếng ồn không xác định trong âm thanh (âm thanh yếu) 3
+tieng tre cọn                                      2
+tiếng ồn không xác định ở đầu và cuối âm thanh (trước khi ho) (yếu) 2
+một chút tiếng ồn, không đáng kể                   2
+oooooooo                                           2
+có tiếng nhạc và tiéng người nói uyên suốt audio (mức độ vừa) 2
+tiếng thở                                          2
+tiếng ồn tĩnh                                      2
+tiếng click chuột phía đầu hơi to                  2
+tiếng ồn ở cuối                                    2
+tiếng ho ồn                                        2
+giọng nói của người khác ở đầu                     2
+audio bị lẫn tiếng nói ở đoạn đầu                  2
+một số tiếng ồn bên ngoài lúc đầu, sau đó sạch sẽ  2
+có tiếng nấc cụt đoạnt từ 5s-5.5s (mức độ vừa) và tiếng ù đoạn cuối audio(mức độ nhỏ) 2
+tiếng ồn lúc đầu                                   2
+thở giữa những cơn ho                              2
+tiếng ồn khi nhấp chuột ở đầu và cuối              2
+âm thanh "mở miệng" trước khi ho                   2
+quá gần mic                                        2
+tiếng ồn trong âm thanh                            2
+tạp âm tiếng nói khác, xuất hiện ở cuối audio      2
+tiếng gió                                          2
+tiếng ồn không xác định trong âm thanh (âm thanh mạnh) 2
+giọng nói                                          2
+audio không có âm thanh                            2
+Âm nhạc                                            2
+tiếng ù âm thanh của tiếng ho (mức độ vừa), có tiếng nấc cụt đoạn cuối audio 2
+tiếng "mở miệng" và tiếng hít vào trước khi ho (weak sound) 2
+thi thoảng có tiếng người đàn ông nói chuyện (mức độ vừa) 2
+[{'text': ['undefined noise at the beginning and the end of the audio(weak sound)']}] 2
+có tiếng người nói và tiếng xước âm thanh xuyên suốt audio(mức độ vừa) 2
+quạt quay                                          2
+â                                                  2
+TV                                                 2
+tiếng rè                                           2
+chỉ hai tiếng ho!                                  2
+tiếng ồn của trẻ em                                2
+tiếng ồn hàng đầu                                  2
+sóng radio                                         2
+nhiễu khi bắt đầu ghi (từ 0: 00: 045 đến 0: 00: 678) 2
+tiếng ồn lúc 0: 09: 285                            2
+tiếng ồn không xác định đoạn đầu audio( mức độ nhỏ) và có nhiêu tiếng ồn từ môi trường xung quanh từ 9s đến hết bao gồm tiếng p1 người hụ nữ và 1 người đàn ông nói chuyện (mức độ vừa) 2
+tiếng ồn không xác định từ môi trường xung quanh khi phát ra âm thanh (âm thanh yếu) và âm thanh như một người đàn ông đang nói chuyện từ 0,5-1 giây (yếu) 2
+tiếng nói của nhiều người                          2
+tiếng ù âm thanh từ 1.8s -2s mức độ vừa            2
+âm thanh bấm còi từ 0 giây-1,2 giây (rất mạnh) và âm thanh của mọi người đang nói chuyện với toàn bộ âm thanh (rất yếu) 2
+tiếng ù                                            2
+tiếng nói,ít                                       2
+tiếng ồn lớn                                       2
+tiếng thổi vào micro                               2
+nói cách ly                                        1
+không rõ noise ỏ đầu audio                         1
+tiếng nhạc xuyên suốt audio( mức độ nhỏ)           1
+tiếng click ở cuối và đầu audio                    1
+không rõ nhiễu 1s -1.2s (âm nhẹ)                   1
+click chuột                                        1
+tôi không chắc đó là tiếng ồn hay tiếng bệnh nhân  1
+bị vang                                            1
+có tiếng thở đoạn đầu                              1
+âm thanh của một đứa trẻ đang nói trong toàn bộ âm thanh (mạnh) 1
+âm thanh của việc nhấp vào một cái gì đó (0: 00: 527) 1
+âm thanh hít vào trước khi ho (yếu) và chó sủa từ 3,5-5 giây (yếu) 1
+tạp âm không xác định trong khi phát âm thanh (âm thanh yếu) và chuông điện thoại ở 1,5 giây 2,7 giây (rất yếu) 1
+âm thanh như mọi người đang nói chuyện (trẻ em, đàn ông, phụ nữ) trong toàn bộ âm thanh (âm thanh mạnh) 1
+[{'text': ['breathing sound']}]                    1
+lẫn tiếng nói ở đầu                                1
+tiếng tivi                                         1
+tiếng rè loa xuyên suốt audio mức độ nhỏ           1
+nhiều nhiễu                                        1
+âm thanh của cái gì đó (từ 0: 04: 027 đến 0: 04: 112) 1
+âm thanh truyền hình                               1
+quá nhiều tiếng ồn xung quanh                      1
+âm thanh khi nhấp một cái gì đó (0: 00: 487) và (từ 0: 08: 748 đến 0: 08: 769) và 0: 08: 925 1
+tạp âm ở đầu audio                                 1
+bọn trẻ                                            1
+vô tuyến                                           1
+tiếng rè rè                                        1
+Too close to the microphone                        1
+ở đầu đoạn ghi âm                                  1
+cắt bớt?                                           1
+nhiêu ở phần đầu                                   1
+tiếng ồn xung quanh                                1
+âm thanh như mọi người đang nói trong toàn bộ âm thanh (mạnh) 1
+tiếng ồn từ đầu đến 0: 01: 631                     1
+ồn ào lúc ban đầu                                  1
+có tiếng nói chuyệnc ủa 2 người xuyên suốt udio( mức độ vừa) 1
+tiếng động                                         1
+lẫn một chút tạp âm tiếng chim                     1
+một số tiếng ồn xung quanh ở đầu                   1
+tiếng ồn của môi trường xung quanh (bình thường)   1
+ho không đếm được hoặc do tiếng ồn đếm giống như ho 1
+tiếng ồn nhỏ                                       1
+tạp âm ít phía đầu                                 1
+tiếng nói chuyện, trao đổi                         1
+âm thanh bị rè mạnh                                1
+tiếng chó sủa và tiếng nói                         1
+tiếng ồn từ môi trường xung quanh (mức độ nhỏ)     1
+có nhiễu                                           1
+rất nhiều khoảng lặng ở cuối tệp                   1
+tiếng quạt máy                                     1
+tiếng ồn không xác định từ môi trường xung quanh khi phát âm thanh (âm thanh bình thường), bao gồm cả âm thanh ngắn và rất yếu của phụ nữ đang đánh dấu sự bắt đầu của âm thanh 1
+giọng nói của ai đó ở đầu và cuối bản ghi âm       1
+tiếng cười                                         1
+tiếng đập bàn                                      1
+gần mic                                            1
+hít vào trước mỗi lần người đàn ông ho (bình thường 1
+có tiếng người nói đoạn tù 3.2s-4s từ 6.1s đến hết( mức độ rất nhỏ) 1
+giọng nói ở đầu bản ghi (từ 0: 01: 259 đến 0: 01: 358) 1
+bản ghi âm này có thở, ho, nguyên âm và số đếm!    1
+âm thanh va chạm vào thứ gì đó từ 0: 00: 029 đến 0: 00: 104 và âm thanh ở môi trường bên ngoài trong suốt bản ghi 1
+tiếng phần đầu bị rè nhiều                         1
+tiếng ồn không xác định từ môi trường xung quanh trong khi phát âm thanh (âm thanh rất yếu) 1
+âm thanh hít sâu trước khi ho (bình thường)        1
+báo động. kiểm tra đồng bộ quang phổ âm thanh      1
+nghe có tiếng người nói từ 5.5s                    1
+lẫn tiếng nói của người khác                       1
+tiếng ồn không xác định từ 0,2-0,4 giây, từ 1,1-1,3 giây và tiếng còi từ 0,57-0,59 giây (tất cả đều là âm thanh yếu) 1
+tạp âm                                             1
+nhiễu không xác định ở đầu và cuối âm thanh (âm thanh yếu) 1
+âm thanh của một đứa trẻ đang nói chuyện trong âm thanh (âm thanh yếu) 1
+audio nhiễu                                        1
+tiếng ho                                           1
+tiếng nói                                          1
+giọng nói của người khác ở cuối âm thanh           1
+có âm nhiễu ở đầu                                  1
+tiếng chuông nhỏ                                   1
+một số hình thức can thiệp vào âm thanh làm hỏng chất lượng âm thanh 1
+rung điện thoại                                    1
+tiếng đồ vật va chạm                               1
+tạp âm tiếng nói khác, xuất hiện ở toàn bộ audio   1
+ho của hai người                                   1
+tiếng chuông điện thoại ở đầu đoạn âm thanh và tiếng người nói chuyện trong lúc âm thanh (cả hai đều yếu) 1
+chiều dài nhỏ và quá gần micrô                     1
+lấy hơi lúc đầu                                    1
+nhiễu từ đầu đến 0: 01: 643 của bản ghi            1
+tạp âm không xác định ở đầu và cuối âm thanh (âm thanh yếu) 1
+âm thanh của một người đang nói chuyện ở đầu âm thanh (yếu) 1
+điện thoại reo                                     1
+thú vật                                            1
+tiếng rè âm thanh (mức độ nhỏ)                     1
+tiếng vang ...                                     1
+âm thanh tĩnh                                      1
+tiếng ồn nhẹ                                       1
+có tiếng người đàn ông nói chuyện và tiếng ồn từ môi trường xung quanh (mức độ mạnh) 1
+nhiễu không xác định ở đầu và cuối âm thanh (bình thường) 1
+có tiếng nói của một người phụ nữa từ 4s-4.6s và tiếng ù âm thanh ( tất cả đều ở mức độ vừa) 1
+ban đầu ồn ào trong phần cắt âm thanh.             1
+một chu kỳ. nghe như miệng bị che bởi cái gì đó    1
+âm thanh hít vào trước khi ho 0,7 giây-0,8 giây (âm thanh ngắn, yếu) 1
+có 1 âm thanh không xác định, rất giống nhau sau mỗi lần ho (mức độ rất nhỏ) 1
+âm thanh như một người phụ nữ đang nói chuyện trong khi âm thanh (yếu) 1
+quá gần micrô                                      1
+không giống như một tiếng ho. cần nghe lại âm thanh này. 1
+0: 00: 015 (âm thanh của các vật thể va đập)       1
+tiếng nói chuyện                                   1
+tiếng ồn của người khác trong quá trình âm thanh   1
+một chút tiếng vang                                1
+nhiều người nói                                    1
+nghe như mọi người đang nói (yếu)                  1
+giọng nói của người khác trong quá trình âm thanh  1
+giọng nói ngẫu nhiên ở đầu                         1
+có một chút tiếng ồn ở đầu đoạn ghi âm             1
+nhiễu không xác định ở đầu âm thanh                1
+rất gần với micrô                                  1
+không xác định                                     1
+tiếng "'mở miệng " trước lúc ho ( nhỏ)             1
+nhiều tiếng ồn từ 13s đến hết bao gồm : tiếng ồn từ môi tường xung quanh, tiếng nói của 2 ngừi phụ nữ ( mức độ vừa) 1
+có âm thanh của một bài hát (yếu)                  1
+một số tiếng ồn xung quanh                         1
+tiếng động khi di chuyển đồ vật                    1
+những người khác nói chuyện                        1
+nghe như mọi người đang nói (mạnh mẽ)              1
+nhiễu không xác định ở đầu âm thanh (yếu), âm thanh của một người đàn ông đang lấy từ 1,13 giây-2,6 giây (mạnh) và tiếng nhạc từ 6s đến cuối âm thanh (âm thanh rất yếu) 1
+anh chàng muqabla, chú thích vùng ho               1
+tiếng ồn không xác định từ môi trường xung quanh khi phát ra âm thanh (âm thanh yếu) và tiếng còi xe từ 8-9,5 giây 1
+không rõ âm                                        1
+có tiếng hát                                       1
+tiếng thở vào micro                                1
+đoạn đầu là tiếng thở, đoạn sau có 2 tiếng ho      1
+tiếng ồn không xác định trong âm thanh (âm thanh bình thường) 1
+hơi ồn ào                                          1
+nghe như có tiếng vọng                             1
+đột ngột cắt âm thanh. tiếng ồn khi nhấp chuột     1
+tất cả trong một âm thanh từ thở đến a, e, o       1
+âm thanh của hai người (từ đầu đến 0: 00: 848)     1
+tiếng chim ngắn và rất yếu từ 1,7 giây-1,8 giây    1
+tiếng thở, tiếng nói                               1
+tạp âm khi thu bị rè                               1
+âm lượng thấp                                      1
+tiếng ồn trong nền                                 1
+tiếng ồn ít                                        1
+khõng rõ                                           1

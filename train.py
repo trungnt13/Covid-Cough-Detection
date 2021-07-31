@@ -38,6 +38,7 @@ from tqdm import tqdm
 from typing_extensions import Literal
 
 from const import SEED, META_DATA
+from features import AcousticFeatures
 from utils import save_allfig
 
 # ===========================================================================
@@ -49,14 +50,27 @@ random.seed(SEED)
 
 
 def data_exploration():
-  train: pd.DataFrame = META_DATA['train'].copy(deep=True)
-  test0: pd.DataFrame = META_DATA['pub_test0'].copy(deep=True)
-  test1: pd.DataFrame = META_DATA['pri_test0'].copy(deep=True)
-  g = sns.PairGrid(train, hue="subject_gender")
-  g.map_diag(sns.histplot)
-  g.map_offdiag(sns.scatterplot)
-  g.add_legend()
-  plt.savefig('/tmp/tmp.pdf')
+  vars = ['subject_age', 'subject_gender', 'assessment_result']
+  name, df = list(META_DATA['train'].items())[0]
+  df: pd.DataFrame = df.copy(deep=True)
+  plt.figure(figsize=(3 * len(vars), 3))
+  for i, v in enumerate(vars):
+    sns.histplot(df[v].apply(str), ax=plt.subplot(1, 3, i + 1))
+    plt.xticks(rotation=90)
+  plt.suptitle(name)
+  ##
+  name, df = list(META_DATA['final_train'].items())[0]
+  df: pd.DataFrame = df.copy(deep=True)
+  plt.figure(figsize=(3 * len(vars), 3))
+  for i, v in enumerate(vars):
+    sns.histplot(df[v].apply(str), ax=plt.subplot(1, 3, i + 1))
+    plt.xticks(rotation=90)
+  plt.suptitle(name)
+  for k, v in df.audio_noise_note.value_counts().items():
+    print(f'{k:50s}', v)
+  ##
+  save_allfig('/tmp/tmp.pdf')
+  ## 'audio_noise_note'
 
 
 Batch = namedtuple('Batch', ['specs', 'results', 'lengths'])
