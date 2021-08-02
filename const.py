@@ -1,15 +1,21 @@
 import glob
 import json
 import os
+import pickle
 from collections import defaultdict
 from pathlib import Path
 import zipfile
+from joblib import Parallel, delayed
 
 import numpy as np
 import pandas as pd
+import soundfile
+import torchaudio
 from six import string_types
+from tqdm import tqdm
 
 SEED = 1
+SR = 8000
 # path to the downloaded *.zip
 ROOT_PATH = Path('/mnt/sdb1/covid_data')
 
@@ -66,6 +72,36 @@ for k, v in WAV_FILES.items():
   print(k, len(v), 'files')
 
 
+# extraction duration and sample rate
+
+def _wav_meta():
+  cache_path = os.path.join(CACHE_PATH, 'wav_meta')
+  if not os.path.exists(cache_path):
+    meta = defaultdict(dict)
+    jobs = [(k, i) for k, v in WAV_FILES.items() for i in v]
+
+    def _extract(args):
+      part, path = args
+      y, sr = soundfile.read(path)
+      return (part, path, max(y.shape) / sr, sr)
+
+    for part, path, dur, sr in tqdm(
+        Parallel(n_jobs=3)(delayed(_extract)(j) for j in jobs),
+        desc='Caching WAV metadata',
+        total=len(jobs)):
+      meta[part][path] = (dur, sr)
+    with open(cache_path, 'wb') as f:
+      pickle.dump(meta, f)
+  else:
+    with open(cache_path, 'rb') as f:
+      meta = pickle.load(f)
+  return meta
+
+
+# mapping: partition -> {path: (duration, sample_rate)}
+WAV_META = _wav_meta()
+
+
 # ===========================================================================
 # Pre-processing
 # ===========================================================================
@@ -85,6 +121,7 @@ def get_json(partition: str,
   ```
   """
   wav = WAV_FILES[partition]
+  wav_meta = WAV_META[partition]
   # === 1. prepare meta
   meta = defaultdict(dict)
   for k, tab in META_DATA[partition].items():
@@ -92,26 +129,28 @@ def get_json(partition: str,
     for _, row in tab.iterrows():
       meta[row['uuid']].update({
         i: eval(j) if isinstance(j, string_types) and '[' in j else j
-        for i, j in row.items() if i != 'uuid'})
+        for i, j in row.items()})
   # === 2. load wav
   data = []
   for f in sorted(wav):
     name = os.path.basename(f)
     uuid = name.replace('.wav', '')
     row: dict = meta[uuid]
-    data.append((uuid, dict(path=f, **row)))
+    dur, sr = wav_meta[f]
+    row['duration'] = dur
+    row['sr'] = sr
+    data.append((uuid, dict(path=f, meta=row)))
   # === 3. shuffle and split
   rand = np.random.RandomState(seed=seed)
   rand.shuffle(data)
   n = len(data)
   start = int(n * start)
   end = int(n * end)
-  data = dict(data[start:end])
+  data = data[start:end]
+  data = dict(data)
   # === 4. save to JSON
   path = os.path.join(CACHE_PATH,
                       f'{partition}_{start:g}_{end:g}_{seed:d}.json')
   with open(path, 'w') as f:
     json.dump(data, f)
   return Path(path)
-
-
