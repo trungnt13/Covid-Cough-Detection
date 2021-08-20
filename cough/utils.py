@@ -1,14 +1,20 @@
+from random import random
 from typing import Union, Tuple
+import matplotlib as mpl
 
 import librosa
+import numpy as np
 import torchaudio
 from matplotlib import pyplot as plt
 from speechbrain.lobes.features import MFCC, Fbank
-
+from speechbrain.dataio.dataset import DynamicItemDataset
 
 # ===========================================================================
 # Helpers
 # ===========================================================================
+from tqdm import tqdm
+
+
 def plot_spec(s, ax: Union[plt.Axes, Tuple[int, int, int]] = None):
   if isinstance(ax, (tuple, list)):
     ax = plt.subplot(*ax)
@@ -85,3 +91,52 @@ def compare_fbank(y, path=None, result=None, save_path=None):
   plt.tight_layout()
   if save_path is not None:
     plt.gcf().savefig(save_path)
+
+
+def plot_wave(ds: DynamicItemDataset):
+  ds.set_output_keys(['signal', 'meta', 'sr'])
+  plt.figure(figsize=(10, 20))
+  for i, j in enumerate(np.random.choice(len(ds), 10)):
+    ax = plt.subplot(10, 1, i + 1)
+    x = ds[int(j)]
+    ax.plot(x['signal'].numpy())
+    cough = x['meta']['cough_intervals']
+    if isinstance(cough, list):
+      for y in cough:
+        start = int(y['start'] * x['signal'].shape[0])
+        end = int(y['end'] * x['signal'].shape[0])
+        ax.add_patch(mpl.patches.Rectangle((start, -1), end - start, 2,
+                                           fill=True,
+                                           color="red",
+                                           alpha=0.3,
+                                           linewidth=1))
+    plt.title(
+      f"{x['meta']['assessment_result']}-{x['meta']['cough_intervals']}",
+      fontsize=6)
+  plt.tight_layout()
+
+
+def plot_check(ds: DynamicItemDataset):
+  ds.set_output_keys(['path', 'signal', 'energies', 'vad',
+                      'spec', 'gender', 'age', 'result'])
+  for i in tqdm(list(range(len(ds)))):
+    if random.random() < 0.1:
+      x = ds[i]
+      plt.figure()
+      plt.subplot(4, 1, 1)
+      plt.plot(x['signal'])
+      plt.title(f"{x['path']} - {x['gender']}:{x['age']}:{x['result']}",
+                fontsize=6)
+      plt.axis('off')
+      plt.subplot(4, 1, 2)
+      plt.plot(x['energies'])
+      plt.axis('off')
+      plt.subplot(4, 1, 3)
+      vad = x['vad'].numpy()
+      plt.scatter(np.arange(len(vad)), vad, s=8)
+      plt.subplot(4, 1, 4)
+      plt.imshow(x['spec'].numpy().T, aspect='auto', origin='lower')
+      plt.axis('off')
+      plt.tight_layout()
+  save_allfig()
+  return ds

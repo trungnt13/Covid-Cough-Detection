@@ -5,6 +5,8 @@ import pickle
 from collections import defaultdict
 from pathlib import Path
 import zipfile
+
+import torch
 from joblib import Parallel, delayed
 
 import numpy as np
@@ -14,10 +16,17 @@ import torchaudio
 from six import string_types
 from tqdm import tqdm
 
+# ===========================================================================
+# Constants
+# ===========================================================================
+
 SEED = 1
 SR = 8000
 # path to the downloaded *.zip
 ROOT_PATH = Path('/mnt/sdb1/covid_data')
+SAVE_PATH = Path(os.path.expanduser('~/exp/covid'))
+if not SAVE_PATH.exists():
+  SAVE_PATH.mkdir()
 
 ZIP_FILES = dict(
   # warmup
@@ -26,10 +35,21 @@ ZIP_FILES = dict(
   pri_test0=os.path.join(ROOT_PATH, 'aicv115m_private_test.zip'),
   # final
   final_train=os.path.join(ROOT_PATH, 'aicv115m_final_public_train.zip'),
+  extra_train=os.path.join(ROOT_PATH, 'aicv115m_extra_public_1235samples.zip'),
   final_pub_test0=os.path.join(ROOT_PATH, 'aicv115m_final_public_test.zip'),
   # fpri_test0=os.path.join(ROOT_PATH, 'aicv115m_final_private_test.zip'),
 )
 
+_dev = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+
+def dev() -> torch.device:
+  return _dev
+
+
+# ===========================================================================
+# Zip extract
+# ===========================================================================
 
 # === 1. extract the zip file
 def _extract_zip():
@@ -76,25 +96,30 @@ for k, v in WAV_FILES.items():
 
 def _wav_meta():
   cache_path = os.path.join(CACHE_PATH, 'wav_meta')
-  if not os.path.exists(cache_path):
-    meta = defaultdict(dict)
-    jobs = [(k, i) for k, v in WAV_FILES.items() for i in v]
-
-    def _extract(args):
-      part, path = args
-      y, sr = soundfile.read(path)
-      return (part, path, max(y.shape) / sr, sr)
-
-    for part, path, dur, sr in tqdm(
-        Parallel(n_jobs=3)(delayed(_extract)(j) for j in jobs),
-        desc='Caching WAV metadata',
-        total=len(jobs)):
-      meta[part][path] = (dur, sr)
-    with open(cache_path, 'wb') as f:
-      pickle.dump(meta, f)
-  else:
+  if os.path.exists(cache_path):
     with open(cache_path, 'rb') as f:
       meta = pickle.load(f)
+  else:
+    meta = defaultdict(dict)
+
+  def _extract(args):
+    part, path = args
+    y, sr = soundfile.read(path)
+    return (part, path, max(y.shape) / sr, sr)
+
+  updated = False
+  for partition in WAV_FILES.keys():
+    if partition not in meta:
+      jobs = [(partition, i) for i in WAV_FILES[partition]]
+      for part, path, dur, sr in tqdm(
+          Parallel(n_jobs=3)(delayed(_extract)(j) for j in jobs),
+          desc='Caching WAV metadata',
+          total=len(jobs)):
+        meta[part][path] = (dur, sr)
+      updated = True
+  if updated:
+    with open(cache_path, 'wb') as f:
+      pickle.dump(meta, f)
   return meta
 
 

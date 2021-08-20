@@ -1,3 +1,11 @@
+* Sepformer: speechbrain/sepformer-whamr
+* SpectralMaskEnhancement: speechbrain/metricgan-plus-voicebank; speechbrain/mtl-mimic-voicebank
+
+Bổ sung thêm 2 models từ tf.keras.application:
+
+* tf.keras.applications.efficientnet.EfficientNetB7
+* tf.keras.applications.vgg19.VGG19
+
 không                                              78
 không nhận dạng được                               13
 có tiếng người nói                                 9

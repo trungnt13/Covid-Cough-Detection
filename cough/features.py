@@ -10,6 +10,8 @@ import torchaudio
 from speechbrain.lobes.augment import TimeDomainSpecAugment, SpecAugment
 from torch.nn import functional as F
 from speechbrain.dataio.encoder import CategoricalEncoder
+from speechbrain.pretrained import EncoderDecoderASR, EncoderClassifier, \
+  SpectralMaskEnhancement
 
 
 def preemphasis(input: torch.tensor, coef: float = 0.97) -> torch.tensor:
@@ -83,7 +85,7 @@ class AudioRead(torch.nn.Module):
                                        offset=start, frames=max(y.shape)))
                    for i in cough
                    if start_frac <= i['start'] <= start_frac + duration_frac]
-        else: # no cough annotation
+        else:  # no cough annotation
           offset = max(0, int(
             self.rand.rand() * (int(sr * duration) - num_frames - 1)))
           y, sr = torchaudio.load(path,
@@ -153,7 +155,7 @@ class VAD(torch.nn.Module):
     return vad, energies
 
 
-class Labeler(torch.nn.Module):
+class LabelEncoder(torch.nn.Module):
   takes = ['meta']
   provides = ['result', 'gender', 'age']
 
