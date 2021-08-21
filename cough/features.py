@@ -174,9 +174,10 @@ class LabelEncoder(torch.nn.Module):
                             group_49_64=7,
                             group_65_78=8,
                             group_79_98=9)
+    self.result_encoder = {'unknown': -1, 0: 0, 1: 1, -1: -1}
 
   def forward(self, meta: Dict[str, Any]):
-    result = int(meta.get('assessment_result', -1))
+    result = self.result_encoder[meta.get('assessment_result', -1)]
     age = self.age_encoder[meta.get('subject_age', 'unknown')]
     gender = self.gender_encoder[meta.get('subject_gender', 'unknown')]
     return result, gender, age

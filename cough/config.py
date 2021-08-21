@@ -24,19 +24,16 @@ SEED = 1
 SR = 8000
 # path to the downloaded *.zip
 ROOT_PATH = Path('/mnt/sdb1/covid_data')
-SAVE_PATH = Path(os.path.expanduser('~/exp/covid'))
-if not SAVE_PATH.exists():
-  SAVE_PATH.mkdir()
 
 ZIP_FILES = dict(
   # warmup
   train=os.path.join(ROOT_PATH, 'aicv115m_public_train.zip'),
-  pub_test0=os.path.join(ROOT_PATH, 'aicv115m_public_test.zip'),
-  pri_test0=os.path.join(ROOT_PATH, 'aicv115m_private_test.zip'),
+  pub_test=os.path.join(ROOT_PATH, 'aicv115m_public_test.zip'),
+  pri_test=os.path.join(ROOT_PATH, 'aicv115m_private_test.zip'),
   # final
   final_train=os.path.join(ROOT_PATH, 'aicv115m_final_public_train.zip'),
   extra_train=os.path.join(ROOT_PATH, 'aicv115m_extra_public_1235samples.zip'),
-  final_pub_test0=os.path.join(ROOT_PATH, 'aicv115m_final_public_test.zip'),
+  final_pub_test=os.path.join(ROOT_PATH, 'aicv115m_final_public_test.zip'),
   # fpri_test0=os.path.join(ROOT_PATH, 'aicv115m_final_private_test.zip'),
 )
 
@@ -46,6 +43,11 @@ _dev = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 def dev() -> torch.device:
   return _dev
 
+
+# extra_train
+# unknown    1203
+# 1            21
+# 0            11
 
 # ===========================================================================
 # Zip extract

@@ -1,4 +1,4 @@
-from typing import Union, Callable, List
+from typing import Union, Callable, List, Sequence, Optional
 
 import speechbrain
 from speechbrain.nnet.containers import Sequential
@@ -9,6 +9,8 @@ import torch
 from speechbrain.pretrained import SpeakerRecognition, EncoderClassifier, \
   SepformerSeparation, SpectralMaskEnhancement, EncoderDecoderASR
 from speechbrain.dataio.dataloader import PaddedBatch
+from torch import nn
+
 from config import dev
 
 
@@ -109,13 +111,16 @@ class Classifier(Sequential):
 
   def __init__(
       self,
-      input_shape,
-      activation=torch.nn.LeakyReLU,
-      lin_blocks=2,
-      lin_neurons=512,
-      out_neurons=1,
+      input_shape: Sequence[int],
+      activation: nn.Module = torch.nn.LeakyReLU,
+      dropout: Optional[float] = 0.3,
+      lin_blocks: int = 2,
+      lin_neurons: int = 512,
+      out_neurons: int = 1,
   ):
     super().__init__(input_shape=input_shape)
+    if dropout is not None and 0. < dropout < 1.:
+      self.append(nn.Dropout(p=dropout), layer_name='drop')
 
     self.append(activation(), layer_name="act")
     self.append(BatchNorm1d, layer_name="norm")
@@ -145,7 +150,12 @@ class Classifier(Sequential):
 
 class SimpleClassifier(torch.nn.Module):
 
-  def __init__(self, features: List[PretrainedModel]):
+  def __init__(self,
+               features: List[PretrainedModel],
+               name: str,
+               dropout: float = 0.3,
+               n_hidden: int = 512,
+               n_layers: int = 2):
     super(SimpleClassifier, self).__init__()
     features = list(features)
     # infer the input shape
@@ -155,17 +165,36 @@ class SimpleClassifier(torch.nn.Module):
     input_shape = list(input_shape[0][:-1]) + \
                   [sum(s[-1] for s in input_shape)]
     self.features = features
+    self._pretrained = torch.nn.ModuleList([f.modules for f in self.features])
     self.classifier = Classifier(tuple(input_shape),
-                                 lin_neurons=512,
+                                 dropout=dropout,
+                                 lin_blocks=n_layers,
+                                 lin_neurons=n_hidden,
                                  out_neurons=1)
-    self.classifier.cuda()
+    if torch.cuda.is_available():
+      self.classifier.cuda()
+    self.name = name
+
+  def pretrained_parameters(self, named: bool = False):
+    return sum([list(f.modules.named_parameters()
+                     if named else f.modules.parameters())
+                for f in self.features], [])
 
   def forward(self, batch: PaddedBatch):
     signal = batch.signal.data
     lengths = batch.signal.lengths
-    X = torch.cat(
-      [f.encode_batch(signal, lengths) for f in self.features], -1)
-    y = self.classifier(X).squeeze(-1).squeeze(-1)
+    try:
+      X = torch.cat(
+        [f.encode_batch(signal, lengths) for f in self.features], -1)
+      y = self.classifier(X).squeeze(-1).squeeze(-1)
+    except RuntimeError as e:
+      print('signals:', signal.get_device())
+      print('lengths:', lengths.get_device())
+      for name, p in self.pretrained_parameters(named=True):
+        print(name, p.shape, p.get_device())
+      for name, p in self.named_parameters():
+        print(name, p.shape, p.get_device())
+      raise e
     return y
 
 
