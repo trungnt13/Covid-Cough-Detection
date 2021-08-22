@@ -277,7 +277,7 @@ def simple_xvec(cfg: Config) -> CoughModel:
     features,
     dropout=cfg.dropout,
     n_target=2,
-    n_steps_priming=int(cfg.steps_priming / (cfg.bs / 16)))
+    n_steps_priming=cfg.steps_priming)
   return model
 
 
@@ -287,7 +287,7 @@ def wav2vec_en(cfg: Config) -> CoughModel:
     features,
     dropout=cfg.dropout,
     n_target=2,
-    n_steps_priming=int(cfg.steps_priming / (cfg.bs / 16)))
+    n_steps_priming=cfg.steps_priming)
   return model
 
 
@@ -297,7 +297,7 @@ def wav2vec_chn(cfg: Config) -> CoughModel:
     features,
     dropout=cfg.dropout,
     n_target=2,
-    n_steps_priming=int(cfg.steps_priming / (cfg.bs / 16)))
+    n_steps_priming=cfg.steps_priming)
   return model
 
 

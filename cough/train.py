@@ -399,6 +399,8 @@ def _read_arguments():
   print('Read arguments:')
   for k, v in CFG.__dict__.items():
     print(' - ', k, ':', v)
+  # rescale the steps according to batch size
+  CFG.steps_priming = int(CFG.steps_priming / (CFG.bs / 16))
 
 
 if __name__ == '__main__':
