@@ -1,3 +1,4 @@
+import warnings
 from typing import Union, Callable, List, Sequence, Optional
 
 import speechbrain
@@ -11,6 +12,7 @@ from speechbrain.pretrained import SpeakerRecognition, EncoderClassifier, \
   SepformerSeparation, SpectralMaskEnhancement, EncoderDecoderASR
 from speechbrain.dataio.dataloader import PaddedBatch
 from torch import nn
+from speechbrain.nnet.pooling import StatisticsPooling
 
 from config import dev, SAMPLE_RATE, Config
 from logging import getLogger
@@ -48,7 +50,7 @@ def pretrained_langid() -> EncoderClassifier:
 
 
 def pretrained_wav2vec() -> EncoderDecoderASR:
-  """[1, 2, 1024]"""
+  """[1, time_downsampled, 1024]"""
   print('Loading pretrained wav2vec EN')
   return EncoderDecoderASR.from_hparams(
     source="speechbrain/asr-wav2vec2-commonvoice-en",
@@ -165,6 +167,11 @@ class CoughModel(torch.nn.Module):
                    for f in features]
     input_shape = list(input_shape[0][:-1]) + \
                   [sum(s[-1] for s in input_shape)]
+    if input_shape[1] != 1:
+      warnings.warn(f'Pretrained model returned non-1 time dimension '
+                    f'{input_shape}, need pooling!')
+      input_shape[1] = 1
+      input_shape[-1] *= 2
     self._input_shape = tuple(input_shape)
     self.features = features
     self._pretrained = torch.nn.ModuleList([f.modules for f in self.features])
@@ -216,6 +223,7 @@ class SimpleClassifier(CoughModel):
                                  lin_blocks=n_layers,
                                  lin_neurons=n_hidden,
                                  out_neurons=1 if n_target == 2 else n_target)
+    self.stats_pooling = StatisticsPooling()
     if torch.cuda.is_available():
       self.classifier.cuda()
 
@@ -242,6 +250,9 @@ class SimpleClassifier(CoughModel):
       # feature extraction
       X = torch.cat(
         [f.encode_batch(signal, lengths) for f in self.features], -1)
+      # statistical pooling
+      if X.shape[1] != 1:
+        X = self.stats_pooling(X)
       # classifier
       y = self.classifier(X).squeeze(1)
       if y.shape[-1] == 1:
@@ -270,5 +281,27 @@ def simple_xvec(cfg: Config) -> CoughModel:
   return model
 
 
-def simple_wav2vec_en(cfg: Config) -> CoughModel:
-  pass
+def wav2vec_en(cfg: Config) -> CoughModel:
+  features = [pretrained_wav2vec()]
+  model = SimpleClassifier(
+    features,
+    dropout=cfg.dropout,
+    n_target=2,
+    n_steps_priming=int(cfg.steps_priming / (cfg.bs / 16)))
+  return model
+
+
+def wav2vec_chn(cfg: Config) -> CoughModel:
+  features = [pretrained_wav2vec_chn()]
+  model = SimpleClassifier(
+    features,
+    dropout=cfg.dropout,
+    n_target=2,
+    n_steps_priming=int(cfg.steps_priming / (cfg.bs / 16)))
+  return model
+
+
+def sepformer(cfg: Config) -> CoughModel:
+  features = [pretrained_sepformer()]
+  print(features[0].modules)
+  exit()

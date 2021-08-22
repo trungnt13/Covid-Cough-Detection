@@ -201,7 +201,7 @@ class TrainModule(pl.LightningModule):
       if self.label_noise is not None and self.label_noise > 0:
         z = torch.rand(y_true.shape,
                        device=y_true.get_device()) * self.label_noise
-        y_true = y_true * (1. - z) + (1. - y_true) * z
+        y_true = y_true * (1 - z) + (1 - y_true) * z
       loss = self.fn_bce(y_pred, y_true)
     else:
       n_target = y_pred.shape[-1]
@@ -329,7 +329,7 @@ def evaluate_covid_detector(model: torch.nn.Module):
 def main():
   ## create the dataset
   if CFG.task == 'covid':
-    outputs = ('signal', 'result')
+    outputs = ('signal', 'result', 'age', 'gender')
     train = init_dataset('final_train',
                          split=(0., 0.9),
                          random_cut=CFG.random_cut,

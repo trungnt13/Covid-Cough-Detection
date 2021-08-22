@@ -25,9 +25,9 @@ print(f'* Read Covid data at path COVID_PATH={COVID_PATH}')
 
 ZIP_FILES = dict(
   # warmup
-  train=os.path.join(COVID_PATH, 'aicv115m_public_train.zip'),
-  pub_test=os.path.join(COVID_PATH, 'aicv115m_public_test.zip'),
-  pri_test=os.path.join(COVID_PATH, 'aicv115m_private_test.zip'),
+  # train=os.path.join(COVID_PATH, 'aicv115m_public_train.zip'),
+  # pub_test=os.path.join(COVID_PATH, 'aicv115m_public_test.zip'),
+  # pri_test=os.path.join(COVID_PATH, 'aicv115m_private_test.zip'),
   # final
   final_train=os.path.join(COVID_PATH, 'aicv115m_final_public_train.zip'),
   extra_train=os.path.join(COVID_PATH, 'aicv115m_extra_public_1235samples.zip'),
@@ -71,7 +71,7 @@ class Config:
   overwrite: bool = False
   # randomly cut small segment of the audio file during training
   # if > 0, the duration in seconds if each segment
-  random_cut: float = 5.
+  random_cut: float = -1.
   # - 'covid': main system covid cough detection
   # - 'gender': train a gender classifier
   # - 'age': train an age classifier
@@ -87,7 +87,11 @@ def _extract_zip():
   final_path = dict()
   for key, path in ZIP_FILES.items():
     name = os.path.basename(path).split('.')[0]
-    abspath = list(COVID_PATH.rglob(f'{name}.zip'))[0]
+    abspath = list(COVID_PATH.rglob(f'{name}.zip'))
+    if len(abspath) == 0:
+      print('Cannot find zip file at:', path)
+      continue
+    abspath = abspath[0]
     outpath = os.path.join(COVID_PATH, name)
     if not os.path.exists(outpath):
       with zipfile.ZipFile(abspath, mode='r') as f:
@@ -107,29 +111,43 @@ for path in [CACHE_PATH, SAVE_PATH]:
   if not os.path.exists(path):
     os.makedirs(path)
 
+
 # uuid  subject_gender  subject_age   assessment_result   file_path
-META_DATA = (lambda: {
-  key: {
-    os.path.basename(csv_file).replace('.csv', ''):
-      pd.read_csv(csv_file.absolute(), sep=',', header=0)
-    for csv_file in Path(val).glob('*.csv')}
-  for key, val in PATH.items()})()
+def _meta_data():
+  return {
+    key: {
+      os.path.basename(csv_file).replace('.csv', ''):
+        pd.read_csv(csv_file.absolute(), sep=',', header=0)
+      for csv_file in Path(val).glob('*.csv')}
+    for key, val in PATH.items()}
 
 
+META_DATA = _meta_data()
+
+
+# get positive weight from 'final_train'
 def _pos_weight():
-  counts = list(META_DATA['final_train'].values())[
-    0].assessment_result.value_counts()
+  counts = META_DATA[
+    'final_train'][
+    'public_train_metadata'].assessment_result.value_counts()
   return counts[0] / counts[1]
 
 
 POS_WEIGHT = _pos_weight()
 
+
 # all wav files
-WAV_FILES = {key: [str(i.absolute()) for i in Path(val).rglob('*.wav')
-                   if '__MACOSX' not in str(i)]
-             for key, val in PATH.items()}
-for k, v in WAV_FILES.items():
-  print(k, len(v), 'files')
+def _wav_files():
+  wavs = {key: [str(i.absolute())
+                for i in Path(val).rglob('*.wav')
+                if '__MACOSX' not in str(i)]
+          for key, val in PATH.items()}
+  for k, v in wavs.items():
+    print(k, len(v), 'files')
+  return wavs
+
+
+WAV_FILES = _wav_files()
 
 
 # extraction duration and sample rate

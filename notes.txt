@@ -1,5 +1,9 @@
+* Sepformer: https://www.programmersought.com/article/38958838635/
+* Constrative Speaker discriminator: https://github.com/speechbrain/speechbrain/blob/30d52bd8048cd79628ee983ea9539e56bd744ebc/recipes/VoxCeleb/SpeakerRec/speaker_verification_discriminator.py
 * Sepformer: speechbrain/sepformer-whamr
-* SpectralMaskEnhancement: speechbrain/metricgan-plus-voicebank; speechbrain/mtl-mimic-voicebank
+* SpectralMaskEnhancement:
+speechbrain/metricgan-plus-voicebank;
+speechbrain/mtl-mimic-voicebank
 
 Bổ sung thêm 2 models từ tf.keras.application:
 
