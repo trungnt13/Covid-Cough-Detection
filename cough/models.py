@@ -23,30 +23,31 @@ logger = getLogger('models')
 # ===========================================================================
 # Prerained Model
 # ===========================================================================
+def _load_encoder_classifier(source) -> EncoderClassifier:
+  print(f'Loading pretrained {source}')
+  m = EncoderClassifier.from_hparams(
+    source=source,
+    run_opts={"device": dev()})
+  m.modules.pop('classifier')
+  return m
 
 
 def pretrained_ecapa() -> EncoderClassifier:
   """[batch_size, 1, 192]"""
-  print('Loading pretrained ECAPA-TDNN')
-  return EncoderClassifier.from_hparams(
-    source="speechbrain/spkrec-ecapa-voxceleb",
-    run_opts={"device": dev()})
+  m = _load_encoder_classifier("speechbrain/spkrec-ecapa-voxceleb")
+  return m
 
 
 def pretrained_xvec() -> EncoderClassifier:
   """[batch_size, 1, 512]"""
-  print('Loading pretrained X-vector')
-  return EncoderClassifier.from_hparams(
-    source="speechbrain/spkrec-xvect-voxceleb",
-    run_opts={"device": dev()})
+  m = _load_encoder_classifier("speechbrain/spkrec-xvect-voxceleb")
+  return m
 
 
 def pretrained_langid() -> EncoderClassifier:
   """[batch_size, 1, 192]"""
-  print('Loading pretrained Lang-ID')
-  return EncoderClassifier.from_hparams(
-    source="speechbrain/lang-id-commonlanguage_ecapa",
-    run_opts={"device": dev()})
+  m = _load_encoder_classifier("speechbrain/lang-id-commonlanguage_ecapa")
+  return m
 
 
 def pretrained_wav2vec() -> EncoderDecoderASR:
@@ -57,7 +58,6 @@ def pretrained_wav2vec() -> EncoderDecoderASR:
     run_opts={"device": dev()})
   m.modules.pop('decoder')
   return m
-
 
 
 def pretrained_wav2vec_chn() -> EncoderDecoderASR:
@@ -304,6 +304,16 @@ class DomainBackprop(SimpleClassifier):
 # ===========================================================================
 def simple_xvec(cfg: Config) -> CoughModel:
   features = [pretrained_xvec()]
+  model = SimpleClassifier(
+    features,
+    dropout=cfg.dropout,
+    n_target=2,
+    n_steps_priming=cfg.steps_priming)
+  return model
+
+
+def simple_ecapa(cfg: Config) -> CoughModel:
+  features = [pretrained_ecapa()]
   model = SimpleClassifier(
     features,
     dropout=cfg.dropout,
