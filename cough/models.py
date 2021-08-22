@@ -268,3 +268,7 @@ def simple_xvec(cfg: Config) -> CoughModel:
     n_target=2,
     n_steps_priming=int(cfg.steps_priming / (cfg.bs / 16)))
   return model
+
+
+def simple_wav2vec_en(cfg: Config) -> CoughModel:
+  pass

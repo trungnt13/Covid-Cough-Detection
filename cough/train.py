@@ -37,7 +37,8 @@ from speechbrain.dataio.sampler import ReproducibleWeightedRandomSampler, \
   ReproducibleRandomSampler
 from tqdm import tqdm
 
-from config import SEED, META_DATA, get_json, SAVE_PATH, POS_WEIGHT, Config
+from config import SEED, META_DATA, get_json, SAVE_PATH, POS_WEIGHT, Config, \
+  ZIP_FILES
 from features import AudioRead, VAD, LabelEncoder
 from models import *
 
@@ -69,7 +70,7 @@ CFG = Config()
 def init_dataset(
     partition: Union[str, Sequence[str]],
     split: Tuple[float, float] = (0.0, 1.0),
-    random_cut: float = 3,
+    random_cut: float = -1,
     outputs: Sequence[str] = ('signal', 'result'),
 ) -> Union[DynamicItemDataset, SaveableDataLoader]:
   json_path = get_json(partition, start=split[0], end=split[1])
@@ -292,12 +293,18 @@ def evaluate_covid_detector(model: torch.nn.Module):
   # model.cpu()
   model.eval()
 
-  test_key = ['final_pub_test']
+  test_key = ['final_pub_test', 'final_pri_test']
   with torch.no_grad():
     for key in test_key:
-      test = init_dataset(key, outputs=('signal', 'id'))
+      if key not in ZIP_FILES:
+        continue
+      test = init_dataset(key,
+                          random_cut=-1,
+                          outputs=('signal', 'id'))
       results = dict()
-      for batch in tqdm(to_loader(test, is_training=False, num_workers=0),
+      for batch in tqdm(to_loader(test,
+                                  is_training=False,
+                                  num_workers=0),
                         desc=key):
         y_proba = model(batch, proba=True).cpu().numpy()
         for k, v in zip(batch.id, y_proba):
@@ -323,9 +330,13 @@ def main():
   ## create the dataset
   if CFG.task == 'covid':
     outputs = ('signal', 'result')
-    train = init_dataset('final_train', split=(0., 0.9), random_cut=-1,
+    train = init_dataset('final_train',
+                         split=(0., 0.9),
+                         random_cut=CFG.random_cut,
                          outputs=outputs)
-    valid = init_dataset('final_train', split=(0.9, 1.0), random_cut=-1,
+    valid = init_dataset('final_train',
+                         split=(0.9, 1.0),
+                         random_cut=-1,
                          outputs=outputs)
   else:
     raise NotImplementedError(f'No support for task={CFG.task}')

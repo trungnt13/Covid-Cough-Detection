@@ -14,10 +14,24 @@ sns.set()
 
 def medical_condition():
   df: pd.DataFrame = META_DATA['final_train']['public_train_medical_condition']
-  for name in df.columns:
-    print(df[name].value_counts())
-    print()
-  print(df.shape)
+  n = len(df.columns) - 1  # no uuid
+  n_col = 2
+  n_row = int(np.ceil(n / 3))
+  plt.figure(figsize=(4 * n_col, 4 * n_row))
+  count = 0
+  for i, name in enumerate(df.columns):
+    if name == 'uuid':
+      continue
+    count += 1
+    val: pd.Series = df[name]
+    print(f'Plotting {name}', len(val.unique()))
+    ax = plt.subplot(n_row, n_col, count)
+    sns.histplot(val, ax=ax)
+    plt.xticks(rotation=90, fontsize=6)
+    plt.title(name)
+  plt.tight_layout()
+  save_allfig('/tmp/tmp.pdf')
+
 
 
 def training_duration():
@@ -102,5 +116,3 @@ def data_exploration():
   plt.tight_layout()
   ##
   save_allfig('/tmp/tmp.pdf')
-
-data_exploration()
