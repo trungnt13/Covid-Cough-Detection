@@ -1,5 +1,5 @@
 """
-conda create -n covid -c conda-forge  python=3.7
+conda create -f covid.yml
 pip install torch==1.9.0+cu111 torchvision==0.10.0+cu111 torchaudio==0.9.0 -f https://download.pytorch.org/whl/torch_stable.html
 pip install pandas pyro-ppl speechbrain matplotlib seaborn librosa
 
@@ -17,44 +17,29 @@ VAD:
 """
 import argparse
 import glob
-import json
+import inspect
 import os
 import random
 import re
 import shutil
 import zipfile
-from collections import namedtuple
-from typing import Union, NamedTuple, Tuple, Dict, List, Sequence, Optional, Any
+from collections import defaultdict
+from logging import getLogger
+from typing import Tuple
 
 import numpy as np
-import pandas as pd
-import seaborn
-import seaborn as sns
-import speechbrain
-import torch
-from matplotlib import pyplot as plt
-import matplotlib as mpl
-from six import string_types
-from speechbrain.dataio.dataloader import SaveableDataLoader
-from speechbrain.dataio.batch import PaddedBatch
-from speechbrain.dataio.dataset import DynamicItemDataset
-from speechbrain.dataio.sampler import ReproducibleRandomSampler
-from speechbrain.nnet.losses import bce_loss
-from speechbrain.lobes.augment import TimeDomainSpecAugment
-from speechbrain.utils.checkpoints import Checkpointer
-from speechbrain.utils.epoch_loop import EpochCounter
-from tqdm import tqdm
-from typing_extensions import Literal
-from sklearn.metrics import auc as auc_score, roc_curve, confusion_matrix
-
-from config import SEED, META_DATA, get_json, SAMPLE_RATE, SAVE_PATH, WAV_META, \
-  POS_WEIGHT, Config
-from features import AcousticFeatures, AudioRead, VAD, LabelEncoder
-from models import *
-from utils import save_allfig
 import pytorch_lightning as pl
-from torch import nn
-from logging import getLogger
+import torch.nn
+from sklearn.metrics import auc as auc_score, roc_curve, confusion_matrix
+from speechbrain.dataio.dataloader import SaveableDataLoader
+from speechbrain.dataio.dataset import DynamicItemDataset
+from speechbrain.dataio.sampler import ReproducibleWeightedRandomSampler, \
+  ReproducibleRandomSampler
+from tqdm import tqdm
+
+from config import SEED, META_DATA, get_json, SAVE_PATH, POS_WEIGHT, Config
+from features import AudioRead, VAD, LabelEncoder
+from models import *
 
 logger = getLogger(__name__)
 
@@ -106,15 +91,37 @@ def init_dataset(
 
 def to_loader(ds: DynamicItemDataset,
               num_workers: int = 0,
-              shuffle=True):
+              is_training=True):
+  sampler = None
+  if is_training:
+    if CFG.oversampling:
+      # oversampling with replacement
+      weights = {}
+      counts = defaultdict(int)
+      for v in ds.data.values():
+        meta = v['meta']
+        uuid = meta['uuid']
+        weights[uuid] = meta['assessment_result']
+        counts[meta['assessment_result']] += 1
+      # normalize
+      counts = {k: sum(i for i in counts.values()) / v
+                for k, v in counts.items()}
+      # weight for each example
+      weights = [counts[weights[idx]] for idx in ds.data_ids]
+      sampler = ReproducibleWeightedRandomSampler(weights,
+                                                  num_samples=len(ds),
+                                                  replacement=True,
+                                                  seed=SEED)
+    else:
+      sampler = ReproducibleRandomSampler(ds, seed=SEED)
   # create data loader
   return SaveableDataLoader(
     dataset=ds,
-    sampler=ReproducibleRandomSampler(ds, seed=SEED) if shuffle else None,
+    sampler=sampler,
     collate_fn=PaddedBatch,
     num_workers=num_workers,
     drop_last=False,
-    batch_size=CFG.bs if shuffle else 8,
+    batch_size=CFG.bs if is_training else 8,
     pin_memory=True if torch.cuda.is_available() else False,
   )
 
@@ -127,15 +134,18 @@ def to_loader(ds: DynamicItemDataset,
 def get_model_path(model, overwrite: bool = False) -> Tuple[str, str]:
   path = os.path.join(SAVE_PATH, model.name)
   if overwrite and os.path.exists(path):
-    print('Overwrite path:', path)
+    print(' * Overwrite path:', path)
     shutil.rmtree(path)
   if not os.path.exists(path):
     os.makedirs(path)
-  print('Save model at path:', path)
+  print(' * Save model at path:', path)
   # higher is better
   checkpoints = glob.glob(f'{path}/**/model-*.ckpt', recursive=True)
   if len(checkpoints) > 0:
-    key = 'val_acc' if 'val_acc' in checkpoints[0] else 'valid_acc'
+    for k in ['val_auc', 'val_acc', 'valid_auc', 'valid_acc', ]:
+      if k in checkpoints[0]:
+        key = k
+        break
     best_path = sorted(
       checkpoints,
       key=lambda p: float(
@@ -144,7 +154,7 @@ def get_model_path(model, overwrite: bool = False) -> Tuple[str, str]:
     best_path = best_path[0]
   else:
     best_path = None
-  print('Best model at path:', best_path)
+  print(' * Best model at path:', best_path)
   return path, best_path
 
 
@@ -172,7 +182,7 @@ class TrainModule(pl.LightningModule):
     self.model = model
     self.lr = lr
     self.fn_bce = torch.nn.BCEWithLogitsLoss(
-      pos_weight=torch.tensor(POS_WEIGHT))
+      pos_weight=torch.tensor(CFG.pos_weight_rescale * POS_WEIGHT))
     self.fn_ce = torch.nn.CrossEntropyLoss()
     self.target = target
     self.label_noise = float(label_noise)
@@ -236,47 +246,47 @@ class TrainModule(pl.LightningModule):
     return optimizer
 
 
-def train_model(args: argparse.Namespace,
-                model: CoughModel,
-                train: DynamicItemDataset,
-                valid: Optional[DynamicItemDataset] = None,
-                target: str = 'result',
-                epochs: int = 1000,
-                n_cpu: int = 4):
-  path, best_path = get_model_path(model, overwrite=args.overwrite)
+def train_covid_detector(model: CoughModel,
+                         train: DynamicItemDataset,
+                         valid: Optional[DynamicItemDataset] = None,
+                         target: str = 'result'):
+  path, best_path = get_model_path(model, overwrite=CFG.overwrite)
 
-  model = TrainModule(model, target=target)
+  model = TrainModule(model,
+                      target=target,
+                      label_noise=CFG.label_noise,
+                      lr=CFG.lr)
   trainer = pl.Trainer(
     gpus=1,
     default_root_dir=path,
     callbacks=[
-      pl.callbacks.ModelCheckpoint(filename='model-{val_acc:.2f}',
-                                   monitor='val_acc',
+      pl.callbacks.ModelCheckpoint(filename='model-{val_auc:.2f}',
+                                   monitor='val_auc',
                                    mode='max',
                                    save_top_k=5,
                                    verbose=True),
-      pl.callbacks.EarlyStopping('val_acc',
+      pl.callbacks.EarlyStopping('val_auc',
                                  mode='max',
-                                 patience=10,
+                                 patience=CFG.patience,
                                  verbose=True),
       TerminateOnNaN(),
     ],
-    max_epochs=epochs,
+    max_epochs=CFG.epochs,
     val_check_interval=int(200 / (CFG.bs / 16)),
     resume_from_checkpoint=best_path,
   )
 
   trainer.fit(
     model,
-    train_dataloaders=to_loader(train, num_workers=n_cpu),
+    train_dataloaders=to_loader(train, num_workers=CFG.ncpu),
     val_dataloaders=None if valid is None else
-    to_loader(valid, num_workers=2, shuffle=False))
+    to_loader(valid, num_workers=2, is_training=False))
 
 
 # ===========================================================================
 # For evaluation
 # ===========================================================================
-def evaluate(model: torch.nn.Module):
+def evaluate_covid_detector(model: torch.nn.Module):
   path, best_path = get_model_path(model)
   if best_path is None:
     raise RuntimeError(f'No model found at path: {path}')
@@ -292,7 +302,8 @@ def evaluate(model: torch.nn.Module):
     for key in test_key:
       test = init_dataset(key, outputs=('signal', 'id'))
       results = dict()
-      for batch in tqdm(to_loader(test, batch_size=8, num_workers=0), desc=key):
+      for batch in tqdm(to_loader(test, is_training=False, num_workers=0),
+                        desc=key):
         y_proba = model(batch, proba=True).cpu().numpy()
         for k, v in zip(batch.id, y_proba):
           results[k] = v
@@ -300,43 +311,88 @@ def evaluate(model: torch.nn.Module):
       text = 'uuid,assessment_result\n'
       for k in uuid_order:
         text += f'{k},{results[k]}\n'
-      csv_path = os.path.join(path, f'{key}.csv')
+      csv_path = os.path.join(path, 'results.csv')
+      zip_path = os.path.join(path, f'{key}.zip')
       with open(csv_path, 'w') as f:
         f.write(text[:-1])
-      print('Save results to:', csv_path)
+      with zipfile.ZipFile(zip_path, 'w') as f:
+        f.write(csv_path, arcname=os.path.basename(csv_path))
+      print('Save results to:', zip_path)
+      os.remove(csv_path)
 
 
 # ===========================================================================
 # Main
 # ===========================================================================
-def main(args: argparse.Namespace):
-  outputs = ('signal', 'vad_y', 'result')
-  target = outputs[-1]
-  n_target = 2
-
-  train = init_dataset('final_train', split=(0., 0.9), random_cut=-1,
-                       outputs=outputs)
-  valid = init_dataset('final_train', split=(0.9, 1.0), random_cut=-1,
-                       outputs=outputs)
-
-  features = [pretrained_xvec()]
-  model = SimpleClassifier(features,
-                           name='pre_spk_lang',
-                           dropout=0.5,
-                           n_target=n_target,
-                           n_steps_priming=int(1000 / (CFG.bs / 16)))
-  if args.eval:
-    evaluate(model)
+def main():
+  if CFG.task == 'covid':
+    outputs = ('signal', 'result')
+    train = init_dataset('final_train', split=(0., 0.9), random_cut=-1,
+                         outputs=outputs)
+    valid = init_dataset('final_train', split=(0.9, 1.0), random_cut=-1,
+                         outputs=outputs)
   else:
-    train_model(args, model, train, valid=valid, target=target)
+    raise NotImplementedError(f'No support for task={CFG.task}')
+
+  # create the model
+  fn_model = globals().get(CFG.model, None)
+  if fn_model is None:
+    defined_models = []
+    for k, v in globals().items():
+      if inspect.isfunction(v):
+        spec = inspect.getfullargspec(v)
+        if 'return' in spec.annotations:
+          return_type = spec.annotations['return']
+          if isinstance(return_type, type) and \
+              issubclass(return_type, torch.nn.Module):
+            defined_models.append(k)
+    print('Found defined models are:')
+    for m in defined_models:
+      print(f' - {m}')
+    raise ValueError(f'Cannot find model with name="{CFG.model}", '
+                     f'model is the name of a function '
+                     f'defined in models.py')
+  model = fn_model(CFG)
+  # assign model.name (important for saving path)
+  model.name = CFG.model
+
+  if CFG.eval:
+    if CFG.task == 'covid':
+      evaluate_covid_detector(model)
+    else:
+      raise NotImplementedError(
+        f'No support for evaluation mode task="{CFG.task}"')
+  else:
+    if CFG.task == 'covid':
+      train_covid_detector(model, train, valid=valid, target='result')
+    else:
+      raise NotImplementedError(
+        f'No support for training mode task="{CFG.task}"')
 
 
 # ===========================================================================
 # Main
 # ===========================================================================
-if __name__ == '__main__':
+def _read_arguments():
   parser = argparse.ArgumentParser()
   parser.add_argument('--overwrite', action='store_true')
   parser.add_argument('--eval', action='store_true')
-  parsed_args = parser.parse_args()
-  main(parsed_args)
+  for k, v in Config.__annotations__.items():
+    if k in ('eval', 'overwrite'):
+      continue
+    parser.add_argument(f'-{k}', type=v, default=Config.__dict__[k])
+  parsed_args: argparse.Namespace = parser.parse_args()
+  for k, v in parsed_args.__dict__.items():
+    if hasattr(CFG, k):
+      # all argument is case insensitive
+      if isinstance(v, str):
+        v = v.lower()
+      setattr(CFG, k, v)
+  print('Read arguments:')
+  for k, v in CFG.__dict__.items():
+    print(' - ', k, ':', v)
+
+
+if __name__ == '__main__':
+  _read_arguments()
+  main()

@@ -1,19 +1,16 @@
-import glob
 import json
 import os
 import pickle
-from collections import defaultdict
-from pathlib import Path
 import zipfile
+from collections import defaultdict
 from dataclasses import dataclass
-
-import torch
-from joblib import Parallel, delayed
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import soundfile
-import torchaudio
+import torch
+from joblib import Parallel, delayed
 from six import string_types
 from tqdm import tqdm
 
@@ -23,21 +20,24 @@ from tqdm import tqdm
 SEED = 1
 SAMPLE_RATE = 8000
 # path to the downloaded *.zip
-ROOT_PATH = Path('/mnt/sdb1/covid_data')
+COVID_PATH = Path(os.environ.get('COVID_PATH', '/mnt/sdb1/covid_data'))
+print(f'* Read Covid data at path COVID_PATH={COVID_PATH}')
 
 ZIP_FILES = dict(
   # warmup
-  train=os.path.join(ROOT_PATH, 'aicv115m_public_train.zip'),
-  pub_test=os.path.join(ROOT_PATH, 'aicv115m_public_test.zip'),
-  pri_test=os.path.join(ROOT_PATH, 'aicv115m_private_test.zip'),
+  train=os.path.join(COVID_PATH, 'aicv115m_public_train.zip'),
+  pub_test=os.path.join(COVID_PATH, 'aicv115m_public_test.zip'),
+  pri_test=os.path.join(COVID_PATH, 'aicv115m_private_test.zip'),
   # final
-  final_train=os.path.join(ROOT_PATH, 'aicv115m_final_public_train.zip'),
-  extra_train=os.path.join(ROOT_PATH, 'aicv115m_extra_public_1235samples.zip'),
-  final_pub_test=os.path.join(ROOT_PATH, 'aicv115m_final_public_test.zip'),
+  final_train=os.path.join(COVID_PATH, 'aicv115m_final_public_train.zip'),
+  extra_train=os.path.join(COVID_PATH, 'aicv115m_extra_public_1235samples.zip'),
+  final_pub_test=os.path.join(COVID_PATH, 'aicv115m_final_public_test.zip'),
   # fpri_test0=os.path.join(ROOT_PATH, 'aicv115m_final_private_test.zip'),
 )
 
-_dev = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+_dev = torch.device(os.environ.get("COVID_DEVICE", "cuda:0")
+                    if torch.cuda.is_available() else "cpu")
+print(f'* Running device COVID_DEVICE={_dev}')
 
 
 def dev() -> torch.device:
@@ -49,10 +49,30 @@ def dev() -> torch.device:
 # 1            21
 # 0            11
 
-@dataclass()
+@dataclass(frozen=False)
 class Config:
   # batch_size
-  bs: int = 64
+  bs: int = 32
+  # rescale the positive weight BCE
+  pos_weight_rescale: float = 0.5
+  # dropout amount for everything
+  dropout: float = 0.5
+  # priming the classifier head first then fine-tuning the whole network
+  steps_priming: int = 1000
+  lr: float = 1e-4
+  epochs: int = 1000
+  patience: int = 20
+  label_noise: float = 0.1
+  oversampling: bool = True
+  ncpu: int = 4
+  # name of the model defined in models.py
+  model: str = 'simple_xvec'
+  eval: bool = False
+  overwrite: bool = False
+  # - 'covid': main system covid cough detection
+  # - 'gender': train a gender classifier
+  # - 'age': train an age classifier
+  task: str = 'covid'
 
 
 # ===========================================================================
@@ -64,13 +84,13 @@ def _extract_zip():
   final_path = dict()
   for key, path in ZIP_FILES.items():
     name = os.path.basename(path).split('.')[0]
-    abspath = list(ROOT_PATH.rglob(f'{name}.zip'))[0]
-    outpath = os.path.join(ROOT_PATH, name)
+    abspath = list(COVID_PATH.rglob(f'{name}.zip'))[0]
+    outpath = os.path.join(COVID_PATH, name)
     if not os.path.exists(outpath):
       with zipfile.ZipFile(abspath, mode='r') as f:
         namelist = [i for i in f.namelist() if '__MACOSX' not in i]
         print(f'Extract {abspath} to {outpath} ({len(namelist)} files)')
-        f.extractall(ROOT_PATH, namelist)
+        f.extractall(COVID_PATH, namelist)
     final_path[key] = outpath
   return final_path
 
@@ -78,8 +98,8 @@ def _extract_zip():
 PATH = _extract_zip()
 
 # === cache and save path
-CACHE_PATH = os.path.join(ROOT_PATH, 'cache')
-SAVE_PATH = os.path.join(ROOT_PATH, 'results')
+CACHE_PATH = os.path.join(COVID_PATH, 'cache')
+SAVE_PATH = os.path.join(COVID_PATH, 'results')
 for path in [CACHE_PATH, SAVE_PATH]:
   if not os.path.exists(path):
     os.makedirs(path)
@@ -99,7 +119,7 @@ def _pos_weight():
   return counts[0] / counts[1]
 
 
-POS_WEIGHT = 1.2 * _pos_weight()
+POS_WEIGHT = _pos_weight()
 
 # all wav files
 WAV_FILES = {key: [str(i.absolute()) for i in Path(val).rglob('*.wav')

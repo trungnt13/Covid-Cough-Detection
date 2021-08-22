@@ -12,7 +12,7 @@ from speechbrain.pretrained import SpeakerRecognition, EncoderClassifier, \
 from speechbrain.dataio.dataloader import PaddedBatch
 from torch import nn
 
-from config import dev, SAMPLE_RATE
+from config import dev, SAMPLE_RATE, Config
 from logging import getLogger
 
 logger = getLogger('models')
@@ -105,10 +105,12 @@ def pretrained_mimic() -> SpectralMaskEnhancement:
 
 
 # ===========================================================================
-# Basic model
+# Define model classes
 # ===========================================================================
-PretrainedModel = Union[
-  EncoderClassifier, EncoderDecoderASR, SepformerSeparation, SpectralMaskEnhancement]
+PretrainedModel = Union[EncoderClassifier,
+                        EncoderDecoderASR,
+                        SepformerSeparation,
+                        SpectralMaskEnhancement]
 
 
 class Classifier(Sequential):
@@ -154,7 +156,7 @@ class Classifier(Sequential):
 
 class CoughModel(torch.nn.Module):
 
-  def __init__(self, features: List[PretrainedModel], name: str):
+  def __init__(self, features: List[PretrainedModel], name: str = None):
     super().__init__()
     features = list(features)
     # infer the input shape
@@ -188,7 +190,7 @@ class SimpleClassifier(CoughModel):
 
   def __init__(self,
                features: List[PretrainedModel],
-               name: str,
+               name: str = None,
                dropout: float = 0.3,
                n_hidden: int = 512,
                n_layers: int = 2,
@@ -202,13 +204,13 @@ class SimpleClassifier(CoughModel):
       drop_chunk_prob=0.8,
       speeds=[90, 95, 100, 105, 110],
       sample_rate=SAMPLE_RATE,
-      drop_freq_count_low=1,
+      drop_freq_count_low=2,
       drop_freq_count_high=5,
-      drop_chunk_count_low=1,
+      drop_chunk_count_low=2,
       drop_chunk_count_high=8,
       drop_chunk_length_low=1000,
       drop_chunk_length_high=SAMPLE_RATE,
-      drop_chunk_noise_factor=0.075)
+      drop_chunk_noise_factor=0.1)
     self.classifier = Classifier(self._input_shape,
                                  dropout=dropout,
                                  lin_blocks=n_layers,
@@ -255,61 +257,14 @@ class SimpleClassifier(CoughModel):
     return y
 
 
-def covid_brain():
-  class CovidBrain(speechbrain.Brain):
-
-    def compute_forward(self, data: Batch, stage):
-      x = data.specs.to(self.device)
-      x = self.modules.encoder(x, lens=data.lengths)
-      x = x.squeeze(1)
-      x = self.modules.output(x)
-      return x
-
-    def compute_objectives(self, logits, batch, stage):
-      y_true = batch.results.to(self.device)
-      loss = bce_loss(logits, y_true)
-      # if stage == speechbrain.Stage.TRAIN:
-      #   loss = bce_loss(logits, y_true)
-      # else:
-      #   x = self.compute_forward(batch, stage)
-      #   x = torch.sigmoid(x).ge(0.5).squeeze(1).type(y_true.dtype)
-      #   loss = torch.eq(x, y_true).sum() / y_true.shape[0]
-      return loss
-
-    def on_stage_end(self, stage, stage_loss, epoch=None):
-      if stage == speechbrain.Stage.VALID:
-        print(f'Valid: {stage_loss:.4f}')
-        # ckp = self.checkpointer.find_checkpoint(max_key='valid_acc')
-        # if ckp is None or ckp.meta['valid_acc'] <= stage_loss:
-        if np.isnan(stage_loss):
-          print('Recover checkpoint')
-          self.checkpointer.recover_if_possible()
-        else:
-          print('Save checkpoint')
-          self.checkpointer.save_and_keep_only(meta=dict(valid=stage_loss),
-                                               keep_recent=True,
-                                               num_to_keep=5)
-
-  modules = {"encoder": Xvector(device='cuda',
-                                in_channels=80,
-                                lin_neurons=512),
-             "output": torch.nn.Sequential(torch.nn.Dropout(p=0.7),
-                                           torch.nn.Linear(512, 512),
-                                           torch.nn.LeakyReLU(),
-                                           torch.nn.BatchNorm1d(512),
-                                           torch.nn.Linear(512, 512),
-                                           torch.nn.LeakyReLU(),
-                                           torch.nn.BatchNorm1d(512),
-                                           torch.nn.Linear(512, 1)),
-             "sigmoid": torch.nn.Sigmoid()}
-  brain = CovidBrain(
-    modules,
-    run_opts=dict(device='cuda:0',
-                  ckpt_interval_minutes=-1,
-                  noprogressbar=False),
-    opt_class=lambda params: torch.optim.Adam(params, 1e-4),
-    checkpointer=Checkpointer(model_path))
-  epoch = EpochCounter(10000)
-  brain.fit(epoch,
-            train_set=train,
-            valid_set=valid)
+# ===========================================================================
+# Defined model
+# ===========================================================================
+def simple_xvec(cfg: Config) -> CoughModel:
+  features = [pretrained_xvec()]
+  model = SimpleClassifier(
+    features,
+    dropout=cfg.dropout,
+    n_target=2,
+    n_steps_priming=int(cfg.steps_priming / (cfg.bs / 16)))
+  return model
