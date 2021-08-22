@@ -69,6 +69,9 @@ class Config:
   model: str = 'simple_xvec'
   eval: bool = False
   overwrite: bool = False
+  # randomly cut small segment of the audio file during training
+  # if > 0, the duration in seconds if each segment
+  random_cut: float = 5.
   # - 'covid': main system covid cough detection
   # - 'gender': train a gender classifier
   # - 'age': train an age classifier

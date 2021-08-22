@@ -6,8 +6,10 @@ import seaborn as sns
 from matplotlib import pyplot as plt
 from six import string_types
 
-from cough.config import META_DATA
-from cough.utils import save_allfig
+from config import META_DATA, WAV_META
+from utils import save_allfig
+
+sns.set()
 
 
 def medical_condition():
@@ -16,7 +18,19 @@ def medical_condition():
     print(df[name].value_counts())
     print()
   print(df.shape)
-  exit()
+
+
+def training_duration():
+  for k, v in WAV_META.items():
+    duration = [i[0] for i in v.values()]
+    plt.figure(figsize=(12, 3))
+    plt.subplot(1, 2, 1)
+    sns.histplot(duration, bins=50, kde=True)
+    plt.title(k)
+    plt.subplot(1, 2, 2)
+    sns.histplot(duration, bins=50, cumulative=True, stat='density')
+    plt.tight_layout()
+  save_allfig('/tmp/tmp.pdf')
 
 
 def data_exploration():
@@ -88,3 +102,5 @@ def data_exploration():
   plt.tight_layout()
   ##
   save_allfig('/tmp/tmp.pdf')
+
+data_exploration()

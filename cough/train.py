@@ -126,11 +126,6 @@ def to_loader(ds: DynamicItemDataset,
   )
 
 
-# ds = create_dataset(JSON_TRAIN, mode='train')
-# for x in tqdm(ds):
-#   pass
-# exit()
-
 def get_model_path(model, overwrite: bool = False) -> Tuple[str, str]:
   path = os.path.join(SAVE_PATH, model.name)
   if overwrite and os.path.exists(path):
@@ -325,6 +320,7 @@ def evaluate_covid_detector(model: torch.nn.Module):
 # Main
 # ===========================================================================
 def main():
+  ## create the dataset
   if CFG.task == 'covid':
     outputs = ('signal', 'result')
     train = init_dataset('final_train', split=(0., 0.9), random_cut=-1,
@@ -334,7 +330,7 @@ def main():
   else:
     raise NotImplementedError(f'No support for task={CFG.task}')
 
-  # create the model
+  ## create the model
   fn_model = globals().get(CFG.model, None)
   if fn_model is None:
     defined_models = []
@@ -356,6 +352,7 @@ def main():
   # assign model.name (important for saving path)
   model.name = CFG.model
 
+  ## running the task
   if CFG.eval:
     if CFG.task == 'covid':
       evaluate_covid_detector(model)
