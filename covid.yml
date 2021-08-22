@@ -1,4 +1,5 @@
 name: covid
+
 channels:
   - conda-forge
   - defaults
@@ -23,3 +24,6 @@ dependencies:
     - torchaudio==0.9.0
     - torchvision==0.10.0+cu111
     - speechbrain==0.5.9
+    - transformers==4.9.2
+    - pytorch-lightning==1.4.2
+    - tqdm==4.61.2
