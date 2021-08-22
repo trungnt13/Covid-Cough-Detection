@@ -113,19 +113,19 @@ class AudioRead(torch.nn.Module):
 
 class VAD(torch.nn.Module):
   takes = ['signal']
-  provides = ['vad', 'energies']
+  provides = ['vad', 'vad_y', 'energies']
 
   def __init__(self,
                n_fft: int = 400,
                win_length: float = 0.025,
                hop_length: float = 0.010,
-               vad_threshold: float = 30.,
+               threshold: float = 35.,
                sr: int = 8000):
     super(VAD, self).__init__()
     self.n_fft = int(n_fft)
     self.win_length = float(win_length)
     self.hop_length = float(hop_length)
-    self.vad_threshold = float(vad_threshold)
+    self.threshold = float(threshold)
     self.sr = sr
 
     fft_window = librosa.filters.get_window(
@@ -151,8 +151,11 @@ class VAD(torch.nn.Module):
 
   def forward(self, y: torch.Tensor):
     energies, frames = self.energies(y)
-    vad = vad_threshold(frames, threshold=self.vad_threshold)
-    return vad, energies
+    vad = vad_threshold(frames, threshold=self.threshold)
+    vad_y = vad.repeat(int(np.ceil(y.shape[0] / vad.shape[0])))
+    n_diff = abs(vad_y.shape[0] - y.shape[0])
+    vad_y = vad_y[n_diff // 2: (y.shape[0] + n_diff // 2)]
+    return vad, vad_y, energies
 
 
 class LabelEncoder(torch.nn.Module):

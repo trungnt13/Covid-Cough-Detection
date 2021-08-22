@@ -5,6 +5,7 @@ import pickle
 from collections import defaultdict
 from pathlib import Path
 import zipfile
+from dataclasses import dataclass
 
 import torch
 from joblib import Parallel, delayed
@@ -19,9 +20,8 @@ from tqdm import tqdm
 # ===========================================================================
 # Constants
 # ===========================================================================
-
 SEED = 1
-SR = 8000
+SAMPLE_RATE = 8000
 # path to the downloaded *.zip
 ROOT_PATH = Path('/mnt/sdb1/covid_data')
 
@@ -48,6 +48,12 @@ def dev() -> torch.device:
 # unknown    1203
 # 1            21
 # 0            11
+
+@dataclass()
+class Config:
+  # batch_size
+  bs: int = 64
+
 
 # ===========================================================================
 # Zip extract
@@ -85,6 +91,15 @@ META_DATA = (lambda: {
       pd.read_csv(csv_file.absolute(), sep=',', header=0)
     for csv_file in Path(val).glob('*.csv')}
   for key, val in PATH.items()})()
+
+
+def _pos_weight():
+  counts = list(META_DATA['final_train'].values())[
+    0].assessment_result.value_counts()
+  return counts[0] / counts[1]
+
+
+POS_WEIGHT = 1.2 * _pos_weight()
 
 # all wav files
 WAV_FILES = {key: [str(i.absolute()) for i in Path(val).rglob('*.wav')

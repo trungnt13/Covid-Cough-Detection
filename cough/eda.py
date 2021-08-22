@@ -10,6 +10,15 @@ from cough.config import META_DATA
 from cough.utils import save_allfig
 
 
+def medical_condition():
+  df: pd.DataFrame = META_DATA['final_train']['public_train_medical_condition']
+  for name in df.columns:
+    print(df[name].value_counts())
+    print()
+  print(df.shape)
+  exit()
+
+
 def data_exploration():
   ##
   vars = ['symptoms_status_choice', 'medical_condition_choice',

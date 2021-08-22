@@ -45,8 +45,10 @@ from speechbrain.utils.checkpoints import Checkpointer
 from speechbrain.utils.epoch_loop import EpochCounter
 from tqdm import tqdm
 from typing_extensions import Literal
+from sklearn.metrics import auc as auc_score, roc_curve, confusion_matrix
 
-from config import SEED, META_DATA, get_json, SR, SAVE_PATH, WAV_META
+from config import SEED, META_DATA, get_json, SAMPLE_RATE, SAVE_PATH, WAV_META, \
+  POS_WEIGHT, Config
 from features import AcousticFeatures, AudioRead, VAD, LabelEncoder
 from models import *
 from utils import save_allfig
@@ -76,6 +78,7 @@ logger = getLogger(__name__)
 np.random.seed(SEED)
 torch.random.manual_seed(SEED)
 random.seed(SEED)
+CFG = Config()
 
 
 def init_dataset(
@@ -88,11 +91,12 @@ def init_dataset(
   # path, meta, id
   ds = DynamicItemDataset.from_json(json_path)
   # signal, sr, meta
-  ds.add_dynamic_item(AudioRead(sr=SR, random_cut=random_cut),
+  ds.add_dynamic_item(AudioRead(sr=SAMPLE_RATE, random_cut=random_cut),
                       takes=AudioRead.takes,
                       provides=AudioRead.provides)
   # vad, energies
-  ds.add_dynamic_item(VAD(sr=SR), takes=VAD.takes, provides=VAD.provides)
+  ds.add_dynamic_item(VAD(sr=SAMPLE_RATE), takes=VAD.takes,
+                      provides=VAD.provides)
   # result, gender, age
   ds.add_dynamic_item(LabelEncoder(), takes=LabelEncoder.takes,
                       provides=LabelEncoder.provides)
@@ -102,15 +106,15 @@ def init_dataset(
 
 def to_loader(ds: DynamicItemDataset,
               num_workers: int = 0,
-              batch_size: int = 16):
+              shuffle=True):
   # create data loader
   return SaveableDataLoader(
     dataset=ds,
-    sampler=ReproducibleRandomSampler(ds, seed=SEED),
+    sampler=ReproducibleRandomSampler(ds, seed=SEED) if shuffle else None,
     collate_fn=PaddedBatch,
     num_workers=num_workers,
     drop_last=False,
-    batch_size=batch_size,
+    batch_size=CFG.bs if shuffle else 8,
     pin_memory=True if torch.cuda.is_available() else False,
   )
 
@@ -119,6 +123,30 @@ def to_loader(ds: DynamicItemDataset,
 # for x in tqdm(ds):
 #   pass
 # exit()
+
+def get_model_path(model, overwrite: bool = False) -> Tuple[str, str]:
+  path = os.path.join(SAVE_PATH, model.name)
+  if overwrite and os.path.exists(path):
+    print('Overwrite path:', path)
+    shutil.rmtree(path)
+  if not os.path.exists(path):
+    os.makedirs(path)
+  print('Save model at path:', path)
+  # higher is better
+  checkpoints = glob.glob(f'{path}/**/model-*.ckpt', recursive=True)
+  if len(checkpoints) > 0:
+    key = 'val_acc' if 'val_acc' in checkpoints[0] else 'valid_acc'
+    best_path = sorted(
+      checkpoints,
+      key=lambda p: float(
+        next(re.finditer(f'{key}=\d+\.\d+', p)).group().split('=')[-1]),
+      reverse=True)
+    best_path = best_path[0]
+  else:
+    best_path = None
+  print('Best model at path:', best_path)
+  return path, best_path
+
 
 # ===========================================================================
 # For training
@@ -135,11 +163,19 @@ class TerminateOnNaN(pl.callbacks.Callback):
 
 class TrainModule(pl.LightningModule):
 
-  def __init__(self, model, lr: float = 1e-4):
+  def __init__(self,
+               model: CoughModel,
+               target: str = 'result',
+               label_noise: Optional[float] = 0.1,
+               lr: float = 1e-4):
     super().__init__()
     self.model = model
     self.lr = lr
-    self.fn_loss = torch.nn.BCEWithLogitsLoss()
+    self.fn_bce = torch.nn.BCEWithLogitsLoss(
+      pos_weight=torch.tensor(POS_WEIGHT))
+    self.fn_ce = torch.nn.CrossEntropyLoss()
+    self.target = target
+    self.label_noise = float(label_noise)
 
   def forward(self, x: PaddedBatch, proba: bool = False):
     # in lightning, forward defines the prediction/inference actions
@@ -148,99 +184,98 @@ class TrainModule(pl.LightningModule):
       y = torch.sigmoid(y)
     return y
 
-  def predict_step(self,
-                   batch: Any,
-                   batch_idx: int,
-                   dataloader_idx: Optional[int] = None) -> Any:
-    print(batch)
-    exit()
-
-  def on_train_batch_start(self,
-                           batch: Any,
-                           batch_idx: int,
-                           dataloader_idx: int):
-    pass
-
   def training_step(self, batch, batch_idx):
     y_pred = self.model(batch).float()
-    y_true = batch.result.data.float().cuda()
-    loss = self.fn_loss(y_pred, y_true)
+    y_true = getattr(batch, self.target).data
+    if torch.cuda.is_available():
+      y_true.cuda()
+    if len(y_pred.shape) == 1:
+      n_target = 2
+      y_true = y_true.float()
+      if self.label_noise is not None and self.label_noise > 0:
+        z = torch.rand(y_true.shape,
+                       device=y_true.get_device()) * self.label_noise
+        y_true = y_true * (1. - z) + (1. - y_true) * z
+      loss = self.fn_bce(y_pred, y_true)
+    else:
+      n_target = y_pred.shape[-1]
+      loss = self.fn_ce(y_pred, y_true.long())
     # Logging to TensorBoard by default
     self.log("train_loss", loss)
     return loss
 
   def validation_step(self, batch, batch_idx):
-    y_pred = torch.sigmoid(self.model(batch)).ge(0.5)
-    y_true = batch.result.data.float().cuda()
+    y = self.model(batch)
+    if len(y.shape) == 1:
+      y_pred = torch.sigmoid(y).ge(0.5)
+    else:
+      y_pred = torch.argmax(y, -1)
+    y_true = getattr(batch, self.target).data.float().cuda()
     acc = y_pred.eq(y_true).float().sum() / y_pred.shape[0]
-    return acc
+    return dict(acc=acc, true=y_true, pred=y_pred)
 
   def validation_epoch_end(self, outputs):
-    acc = np.mean([o.cpu().numpy() for o in outputs])
-    self.log('valid_acc', acc, prog_bar=True)
-    return dict(acc=acc)
+    acc = np.mean([o['acc'].cpu().numpy() for o in outputs])
+    # calculate AUC
+    true = torch.cat([o['true'] for o in outputs], 0)
+    pred = torch.cat([o['pred'] for o in outputs], 0)
+    # row: true_labels
+    print(f'\n\n{confusion_matrix(true.cpu().numpy(), pred.cpu().numpy())}\n')
+    fpr, tpr, thresholds = roc_curve(true.cpu().numpy(),
+                                     pred.cpu().numpy(),
+                                     pos_label=1)
+    auc = auc_score(fpr, tpr)
+    if np.isnan(auc) or np.isinf(auc):
+      auc = 0
+    self.log('val_acc', torch.tensor(acc), prog_bar=True)
+    self.log('val_auc', torch.tensor(auc), prog_bar=True)
+    return dict(acc=acc, auc=auc)
 
   def configure_optimizers(self):
     optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
     return optimizer
 
 
-def get_model_path(model, overwrite: bool = False) -> Tuple[str, str]:
-  path = os.path.join(SAVE_PATH, model.name)
-  if overwrite and os.path.exists(path):
-    print('Overwrite path:', path)
-    shutil.rmtree(path)
-  if not os.path.exists(path):
-    os.makedirs(path)
-  print('Save model at path:', path)
-  # higher is better
-  best_path = sorted(
-    glob.glob(f'{path}/**/model-*.ckpt', recursive=True),
-    key=lambda p: float(
-      next(re.finditer(r'valid_acc=\d+\.\d+', p)).group().split('=')[-1]),
-    reverse=True)
-  if len(best_path) > 0:
-    best_path = best_path[0]
-  else:
-    best_path = None
-  print('Best model at path:', best_path)
-  return path, best_path
-
-
 def train_model(args: argparse.Namespace,
-                model: torch.nn.Module,
+                model: CoughModel,
                 train: DynamicItemDataset,
                 valid: Optional[DynamicItemDataset] = None,
-                epochs: int = 100,
+                target: str = 'result',
+                epochs: int = 1000,
                 n_cpu: int = 4):
   path, best_path = get_model_path(model, overwrite=args.overwrite)
 
-  model = TrainModule(model)
+  model = TrainModule(model, target=target)
   trainer = pl.Trainer(
     gpus=1,
     default_root_dir=path,
     callbacks=[
-      pl.callbacks.ModelCheckpoint(filename='model-{valid_acc:.2f}',
-                                   monitor='valid_acc',
+      pl.callbacks.ModelCheckpoint(filename='model-{val_acc:.2f}',
+                                   monitor='val_acc',
                                    mode='max',
                                    save_top_k=5,
                                    verbose=True),
-      pl.callbacks.EarlyStopping('valid_acc',
+      pl.callbacks.EarlyStopping('val_acc',
                                  mode='max',
                                  patience=10,
                                  verbose=True),
       TerminateOnNaN(),
     ],
     max_epochs=epochs,
-    val_check_interval=100,
+    val_check_interval=int(200 / (CFG.bs / 16)),
     resume_from_checkpoint=best_path,
   )
 
-  trainer.fit(model,
-              train_dataloaders=to_loader(train, n_cpu),
-              val_dataloaders=None if valid is None else to_loader(valid, 0))
+  trainer.fit(
+    model,
+    train_dataloaders=to_loader(train, num_workers=n_cpu),
+    val_dataloaders=None if valid is None else
+    to_loader(valid, num_workers=2, shuffle=False))
 
 
+# ===========================================================================
+# For evaluation
+# ===========================================================================
 def evaluate(model: torch.nn.Module):
   path, best_path = get_model_path(model)
   if best_path is None:
@@ -257,7 +292,7 @@ def evaluate(model: torch.nn.Module):
     for key in test_key:
       test = init_dataset(key, outputs=('signal', 'id'))
       results = dict()
-      for batch in tqdm(to_loader(test, 0), desc=key):
+      for batch in tqdm(to_loader(test, batch_size=8, num_workers=0), desc=key):
         y_proba = model(batch, proba=True).cpu().numpy()
         for k, v in zip(batch.id, y_proba):
           results[k] = v
@@ -272,17 +307,28 @@ def evaluate(model: torch.nn.Module):
 
 
 # ===========================================================================
-# For predicting
+# Main
 # ===========================================================================
 def main(args: argparse.Namespace):
-  train = init_dataset('final_train', split=(0., 0.8))
-  valid = init_dataset('final_train', split=(0.8, 1.0))
+  outputs = ('signal', 'vad_y', 'result')
+  target = outputs[-1]
+  n_target = 2
+
+  train = init_dataset('final_train', split=(0., 0.9), random_cut=-1,
+                       outputs=outputs)
+  valid = init_dataset('final_train', split=(0.9, 1.0), random_cut=-1,
+                       outputs=outputs)
+
   features = [pretrained_xvec()]
-  model = SimpleClassifier(features, name='pre_xvec')
+  model = SimpleClassifier(features,
+                           name='pre_spk_lang',
+                           dropout=0.5,
+                           n_target=n_target,
+                           n_steps_priming=int(1000 / (CFG.bs / 16)))
   if args.eval:
     evaluate(model)
   else:
-    train_model(args, model, train, valid=valid)
+    train_model(args, model, train, valid=valid, target=target)
 
 
 # ===========================================================================
