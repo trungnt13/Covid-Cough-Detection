@@ -52,9 +52,12 @@ def pretrained_langid() -> EncoderClassifier:
 def pretrained_wav2vec() -> EncoderDecoderASR:
   """[1, time_downsampled, 1024]"""
   print('Loading pretrained wav2vec EN')
-  return EncoderDecoderASR.from_hparams(
+  m = EncoderDecoderASR.from_hparams(
     source="speechbrain/asr-wav2vec2-commonvoice-en",
     run_opts={"device": dev()})
+  m.modules.pop('decoder')
+  return m
+
 
 
 def pretrained_wav2vec_chn() -> EncoderDecoderASR:
@@ -204,7 +207,12 @@ class SimpleClassifier(CoughModel):
                n_target: int = 2,
                n_steps_priming: int = 1000):
     super(SimpleClassifier, self).__init__(features, name)
+    self.dropout = dropout
     self.n_steps_priming = int(n_steps_priming)
+    self.n_hidden = n_hidden
+    self.n_layers = n_layers
+    self.n_target = n_target
+
     self.augment = TimeDomainSpecAugment(
       perturb_prob=0.8,
       drop_freq_prob=0.8,
@@ -218,14 +226,16 @@ class SimpleClassifier(CoughModel):
       drop_chunk_length_low=1000,
       drop_chunk_length_high=SAMPLE_RATE,
       drop_chunk_noise_factor=0.1)
+
     self.classifier = Classifier(self._input_shape,
                                  dropout=dropout,
                                  lin_blocks=n_layers,
                                  lin_neurons=n_hidden,
                                  out_neurons=1 if n_target == 2 else n_target)
-    self.stats_pooling = StatisticsPooling()
     if torch.cuda.is_available():
       self.classifier.cuda()
+
+    self.stats_pooling = StatisticsPooling()
 
   def pretrained_parameters(self, named: bool = False):
     return sum([list(f.modules.named_parameters()
@@ -244,7 +254,7 @@ class SimpleClassifier(CoughModel):
           self.training_steps > self.n_steps_priming:
         logger.info(f'[{self.name}] Enable all pretrained parameters')
         print(f'\n[{self.name}] Enable all pretrained parameters')
-        self.set_pretrained_params(True)
+        self.set_pretrained_params(trainable=True)
         self.training_stage += 1
     try:
       # feature extraction
@@ -265,6 +275,27 @@ class SimpleClassifier(CoughModel):
       for name, p in self.named_parameters():
         print(name, p.shape, p.get_device())
       raise e
+    return y
+
+
+class DomainBackprop(SimpleClassifier):
+  """ Gamin et al. Unsupervised Domain Adaptation by Backpropagation. 2019 """
+
+  def __init__(self, *args, **kwargs):
+    super().__init__(*args, **kwargs)
+    self.age_classifier = Classifier(
+      input_shape=self._input_shape,
+      dropout=self.dropout,
+      lin_blocks=self.n_layers,
+      lin_neurons=self.n_hidden)
+    self.gender_classifier = Classifier(
+      input_shape=self._input_shape,
+      dropout=self.dropout,
+      lin_blocks=self.n_layers,
+      lin_neurons=self.n_hidden)
+
+  def forward(self, batch: PaddedBatch):
+    y = super(DomainBackprop, self).forward(batch)
     return y
 
 
@@ -294,6 +325,16 @@ def wav2vec_en(cfg: Config) -> CoughModel:
 def wav2vec_chn(cfg: Config) -> CoughModel:
   features = [pretrained_wav2vec_chn()]
   model = SimpleClassifier(
+    features,
+    dropout=cfg.dropout,
+    n_target=2,
+    n_steps_priming=cfg.steps_priming)
+  return model
+
+
+def domain_backprop(cfg: Config) -> CoughModel:
+  features = [pretrained_xvec()]
+  model = DomainBackprop(
     features,
     dropout=cfg.dropout,
     n_target=2,

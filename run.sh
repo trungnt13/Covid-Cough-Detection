@@ -8,8 +8,10 @@ python cough/train.py \
   -task covid \
   -oversampling True \
   -bs 16 \
+  -pos_weight_rescale 0.2 \
   -random_cut 5 \
   -lr 0.0001 \
   -epochs 1000 \
-  -ncpu 4
+  -ncpu 4 \
+  --overwrite
 
