@@ -50,51 +50,48 @@ def pretrained_langid() -> EncoderClassifier:
   return m
 
 
-def pretrained_wav2vec() -> EncoderDecoderASR:
-  """[1, time_downsampled, 1024]"""
-  print('Loading pretrained wav2vec EN')
+###################### Wav2Vec
+def _load_encoder_asr(source) -> EncoderDecoderASR:
+  print(f'Loading pretrained {source}')
   m = EncoderDecoderASR.from_hparams(
-    source="speechbrain/asr-wav2vec2-commonvoice-en",
+    source=source,
     run_opts={"device": dev()})
   m.modules.pop('decoder')
   return m
 
 
+def pretrained_wav2vec() -> EncoderDecoderASR:
+  """[1, time_downsampled, 1024]"""
+  return _load_encoder_asr("speechbrain/asr-wav2vec2-commonvoice-en")
+
+
 def pretrained_wav2vec_chn() -> EncoderDecoderASR:
-  print('Loading pretrained wav2vec CHN')
-  return EncoderDecoderASR.from_hparams(
-    source="speechbrain/asr-wav2vec2-transformer-aishell",
-    run_opts={"device": dev()})
+  return _load_encoder_asr("speechbrain/asr-wav2vec2-transformer-aishell")
 
 
 def pretrained_crdnn():
-  print('Loading pretrained CRDNN')
-  return EncoderDecoderASR.from_hparams(
-    source="speechbrain/asr-crdnn-transformerlm-librispeech",
-    run_opts={"device": dev()})
+  return _load_encoder_asr("speechbrain/asr-crdnn-transformerlm-librispeech")
 
 
 def pretrained_transformer():
-  print('Loading pretrained Transformer EN')
-  return EncoderDecoderASR.from_hparams(
-    source="speechbrain/asr-transformer-transformerlm-librispeech",
-    run_opts={"device": dev()})
+  return _load_encoder_asr(
+    "speechbrain/asr-transformer-transformerlm-librispeech")
 
 
 def pretrained_transformer_chn() -> EncoderDecoderASR:
-  print('Loading pretrained Transformer CHN')
-  return EncoderDecoderASR.from_hparams(
-    source="speechbrain/asr-transformer-aishell",
-    run_opts={"device": dev()})
+  return _load_encoder_asr("speechbrain/asr-transformer-aishell")
 
 
+###################### Sepformer
 def pretrained_sepformer() -> SepformerSeparation:
   print('Loading pretrained Sepformer')
-  return SepformerSeparation.from_hparams(
+  m = SepformerSeparation.from_hparams(
     source="speechbrain/sepformer-whamr",
     run_opts={"device": dev()})
+  return m
 
 
+####################### Speech Enhancer
 def pretrained_metricgan() -> SpectralMaskEnhancement:
   print('Loading pretrained MetricGAN')
   return SpectralMaskEnhancement.from_hparams(
@@ -334,6 +331,26 @@ def wav2vec_en(cfg: Config) -> CoughModel:
 
 def wav2vec_chn(cfg: Config) -> CoughModel:
   features = [pretrained_wav2vec_chn()]
+  model = SimpleClassifier(
+    features,
+    dropout=cfg.dropout,
+    n_target=2,
+    n_steps_priming=cfg.steps_priming)
+  return model
+
+
+def transformer_en(cfg: Config) -> CoughModel:
+  features = [pretrained_transformer()]
+  model = SimpleClassifier(
+    features,
+    dropout=cfg.dropout,
+    n_target=2,
+    n_steps_priming=cfg.steps_priming)
+  return model
+
+
+def transformer_chn(cfg: Config) -> CoughModel:
+  features = [pretrained_transformer_chn()]
   model = SimpleClassifier(
     features,
     dropout=cfg.dropout,

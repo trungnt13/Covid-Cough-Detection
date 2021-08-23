@@ -60,6 +60,13 @@ class Config:
   # priming the classifier head first then fine-tuning the whole network
   steps_priming: int = 1000
   lr: float = 1e-4
+  # exp: ExponentialLR
+  # step: StepLR
+  # cos: CosineAnnealingLR
+  # cyc: CyclicLR
+  scheduler: str = 'exp'
+  gamma: float = 0.95
+  lr_step: int = 100
   epochs: int = 1000
   patience: int = 20
   label_noise: float = 0.1

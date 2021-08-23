@@ -41,6 +41,7 @@ from config import SEED, META_DATA, get_json, SAVE_PATH, POS_WEIGHT, Config, \
   ZIP_FILES
 from features import AudioRead, VAD, LabelEncoder
 from models import *
+from torch.optim import lr_scheduler
 
 logger = getLogger(__name__)
 
@@ -235,10 +236,30 @@ class TrainModule(pl.LightningModule):
       auc = 0
     self.log('val_acc', torch.tensor(acc), prog_bar=True)
     self.log('val_auc', torch.tensor(auc), prog_bar=True)
+    # print the learning rate
+    for pg in self.optimizers().param_groups:
+      self.log('lr', pg.get('lr'), prog_bar=True)
     return dict(acc=acc, auc=auc)
 
   def configure_optimizers(self):
     optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
+    if len(CFG.scheduler) > 0:
+      if CFG.scheduler == 'exp':
+        scheduler = lr_scheduler.ExponentialLR(optimizer, gamma=CFG.gamma)
+      elif CFG.scheduler == 'step':
+        scheduler = lr_scheduler.StepLR(optimizer, gamma=CFG.gamma,
+                                        step_size=CFG.lr_step)
+      elif CFG.scheduler == 'cos':
+        scheduler = lr_scheduler.CosineAnnealingLR(optimizer, T_max=CFG.lr_step,
+                                                   eta_min=1e-10)
+      elif CFG.scheduler == 'cyc':
+        scheduler = lr_scheduler.CyclicLR(optimizer,
+                                          base_lr=CFG.lr / 10,
+                                          max_lr=CFG.lr * 10,
+                                          step_size_up=CFG.lr_step)
+      else:
+        raise NotImplementedError(f'Unknown LR scheduler {CFG.scheduler}')
+      return [optimizer], [scheduler]
     return optimizer
 
 
