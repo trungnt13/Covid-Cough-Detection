@@ -287,7 +287,14 @@ class SimpleClassifier(CoughModel):
 class DomainBackprop(SimpleClassifier):
   """ Gamin et al. Unsupervised Domain Adaptation by Backpropagation. 2019 """
 
-  def __init__(self, age_coef=1.0, gen_coef=1.0, *args, **kwargs):
+  def __init__(self,
+               age_coef=0.05,
+               gen_coef=0.05,
+               decay_rate=0.98,
+               step_size=100,
+               min_coef=1e-10,
+               *args,
+               **kwargs):
     super().__init__(*args, **kwargs)
     self.age_classifier = Classifier(
       input_shape=self._input_shape,
@@ -304,6 +311,10 @@ class DomainBackprop(SimpleClassifier):
     self.fn_loss = nn.CrossEntropyLoss()
     self.age_coef = age_coef
     self.gen_coef = gen_coef
+    self.decay_rate = float(decay_rate)
+    self.step_size = step_size
+    self.n_steps = 0
+    self.min_coef = min_coef
 
   def forward(self, batch: PaddedBatch):
     y, X = super(DomainBackprop, self).forward(batch, return_feat=True)
@@ -313,8 +324,13 @@ class DomainBackprop(SimpleClassifier):
       age_true = batch.age.data
       gen_true = batch.gender.data
       # maximizing the loss here
-      losses = -(self.age_coef * self.fn_loss(age, age_true) +
-                 self.gen_coef * self.fn_loss(gen, gen_true))
+      decay_rate = self.decay_rate ** int(self.n_steps / self.step_size)
+      self.n_steps += 1
+      losses: torch.Tensor = -(
+          max(decay_rate * self.age_coef, self.min_coef) *
+          self.fn_loss(age, age_true) +
+          max(decay_rate * self.gen_coef, self.min_coef) *
+          self.fn_loss(gen, gen_true))
       return ModelOutput(outputs=y, losses=losses)
     return y
 
@@ -384,9 +400,9 @@ def transformer_chn(cfg: Config) -> CoughModel:
 
 def domain_xvec(cfg: Config) -> CoughModel:
   features = [pretrained_xvec()]
-  age = 1.0
-  gen = 1.0
-  args = cfg.model_args.split(',')
+  age = 0.05
+  gen = 0.05
+  args = [i for i in cfg.model_args.split(',') if len(i) > 0]
   if len(args) == 1:
     age = float(args[0])
     gen = float(args[0])
@@ -396,6 +412,7 @@ def domain_xvec(cfg: Config) -> CoughModel:
   model = DomainBackprop(
     age_coef=age,
     gen_coef=gen,
+    step_size=int(100 / (cfg.bs / 16)),
     features=features,
     dropout=cfg.dropout,
     n_target=2,

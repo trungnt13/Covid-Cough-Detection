@@ -78,12 +78,11 @@ def init_dataset(
   # path, meta, id
   ds = DynamicItemDataset.from_json(json_path)
   # signal, sr, meta
-  ds.add_dynamic_item(AudioRead(sr=SAMPLE_RATE, random_cut=random_cut),
+  ds.add_dynamic_item(AudioRead(random_cut=random_cut),
                       takes=AudioRead.takes,
                       provides=AudioRead.provides)
   # vad, energies
-  ds.add_dynamic_item(VAD(sr=SAMPLE_RATE), takes=VAD.takes,
-                      provides=VAD.provides)
+  ds.add_dynamic_item(VAD(), takes=VAD.takes, provides=VAD.provides)
   # result, gender, age
   ds.add_dynamic_item(LabelEncoder(), takes=LabelEncoder.takes,
                       provides=LabelEncoder.provides)

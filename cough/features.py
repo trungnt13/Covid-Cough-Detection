@@ -13,6 +13,8 @@ from speechbrain.dataio.encoder import CategoricalEncoder
 from speechbrain.pretrained import EncoderDecoderASR, EncoderClassifier, \
   SpectralMaskEnhancement
 
+from cough.config import SAMPLE_RATE
+
 
 def preemphasis(input: torch.tensor, coef: float = 0.97) -> torch.tensor:
   assert len(input.size()) == 1
@@ -45,13 +47,12 @@ class AudioRead(torch.nn.Module):
   def __init__(self,
                random_cut: Optional[float] = 3.0,
                preemphasis: Optional[float] = 0.97,
-               sr: Optional[int] = 8000,
                seed: int = 1):
     super(AudioRead, self).__init__()
     self.random_cut = random_cut
     self.preemphasis = preemphasis
     self.rand = np.random.RandomState(seed=seed)
-    self.sr = int(sr)
+    self.sr = int(SAMPLE_RATE)
     self.resampler = dict()
 
   def forward(self, path: str, meta: Dict[str, Any]):
@@ -119,17 +120,16 @@ class VAD(torch.nn.Module):
                n_fft: int = 400,
                win_length: float = 0.025,
                hop_length: float = 0.010,
-               threshold: float = 35.,
-               sr: int = 8000):
+               threshold: float = 35.):
     super(VAD, self).__init__()
     self.n_fft = int(n_fft)
     self.win_length = float(win_length)
     self.hop_length = float(hop_length)
     self.threshold = float(threshold)
-    self.sr = sr
+    self.sr = SAMPLE_RATE
 
     fft_window = librosa.filters.get_window(
-      'hann', int(win_length * sr), fftbins=True)
+      'hann', int(win_length * SAMPLE_RATE), fftbins=True)
     fft_window = librosa.util.pad_center(fft_window, n_fft)
     fft_window = fft_window.reshape((-1, 1))
     self.fft_window = fft_window

@@ -18,7 +18,7 @@ from tqdm import tqdm
 # Constants
 # ===========================================================================
 SEED = 1
-SAMPLE_RATE = 8000
+SAMPLE_RATE = int(os.environ.get('COVID_SR', 8000))
 # path to the downloaded *.zip
 COVID_PATH = Path(os.environ.get('COVID_PATH', '/mnt/sdb1/covid_data'))
 print(f'* Read Covid data at path COVID_PATH={COVID_PATH}')
@@ -65,7 +65,7 @@ class Config:
   # cos: CosineAnnealingLR
   # cyc: CyclicLR
   scheduler: str = 'exp'
-  gamma: float = 0.95
+  gamma: float = 0.98
   lr_step: int = 100  # used for StepLR
   grad_clip: float = 0.0  # norm clipping
   epochs: int = 1000
