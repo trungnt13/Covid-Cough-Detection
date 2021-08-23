@@ -192,7 +192,13 @@ class TrainModule(pl.LightningModule):
     return y
 
   def training_step(self, batch, batch_idx):
-    y_pred = self.model(batch).float()
+    y_pred = self.model(batch)
+    if isinstance(y_pred, ModelOutput):
+      extra_losses = y_pred.losses
+      y_pred = y_pred.outputs
+    else:
+      extra_losses = 0.
+    y_pred = y_pred.float()
     y_true = getattr(batch, self.target).data
     if torch.cuda.is_available():
       y_true.cuda()
@@ -208,11 +214,14 @@ class TrainModule(pl.LightningModule):
       n_target = y_pred.shape[-1]
       loss = self.fn_ce(y_pred, y_true.long())
     # Logging to TensorBoard by default
+    loss += extra_losses
     self.log("train_loss", loss)
     return loss
 
   def validation_step(self, batch, batch_idx):
     y = self.model(batch)
+    if isinstance(y, ModelOutput):
+      y = y.outputs
     if len(y.shape) == 1:
       y_pred = torch.sigmoid(y).ge(0.5)
     else:
@@ -276,6 +285,8 @@ def train_covid_detector(model: CoughModel,
   trainer = pl.Trainer(
     gpus=1,
     default_root_dir=path,
+    gradient_clip_val=CFG.grad_clip,
+    gradient_clip_algorithm='norm',
     callbacks=[
       pl.callbacks.ModelCheckpoint(filename='model-{val_auc:.2f}',
                                    monitor='val_auc',

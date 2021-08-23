@@ -66,14 +66,13 @@ class Config:
   # cyc: CyclicLR
   scheduler: str = 'exp'
   gamma: float = 0.95
-  lr_step: int = 100
+  lr_step: int = 100  # used for StepLR
+  grad_clip: float = 0.0  # norm clipping
   epochs: int = 1000
   patience: int = 20
   label_noise: float = 0.1
   oversampling: bool = True
   ncpu: int = 4
-  # name of the model defined in models.py
-  model: str = 'simple_xvec'
   eval: bool = False
   overwrite: bool = False
   # randomly cut small segment of the audio file during training
@@ -83,6 +82,10 @@ class Config:
   # - 'gender': train a gender classifier
   # - 'age': train an age classifier
   task: str = 'covid'
+  # name of the model defined in models.py
+  model: str = 'simple_xvec'
+  # extra arguments for the model, e.g. 0.1,0.2,0.3
+  model_args: str = ''
 
 
 # ===========================================================================

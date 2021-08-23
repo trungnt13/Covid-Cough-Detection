@@ -1,3 +1,4 @@
+import dataclasses
 import warnings
 from typing import Union, Callable, List, Sequence, Optional
 
@@ -18,6 +19,12 @@ from config import dev, SAMPLE_RATE, Config
 from logging import getLogger
 
 logger = getLogger('models')
+
+
+@dataclasses.dataclass()
+class ModelOutput:
+  outputs: Optional[torch.Tensor] = None
+  losses: Optional[torch.Tensor] = None
 
 
 # ===========================================================================
@@ -239,7 +246,7 @@ class SimpleClassifier(CoughModel):
                      if named else f.modules.parameters())
                 for f in self.features], [])
 
-  def forward(self, batch: PaddedBatch):
+  def forward(self, batch: PaddedBatch, return_feat: bool = False):
     signal = batch.signal.data
     lengths = batch.signal.lengths
     if self.training:
@@ -272,27 +279,43 @@ class SimpleClassifier(CoughModel):
       for name, p in self.named_parameters():
         print(name, p.shape, p.get_device())
       raise e
+    if return_feat:
+      return y, X
     return y
 
 
 class DomainBackprop(SimpleClassifier):
   """ Gamin et al. Unsupervised Domain Adaptation by Backpropagation. 2019 """
 
-  def __init__(self, *args, **kwargs):
+  def __init__(self, age_coef=1.0, gen_coef=1.0, *args, **kwargs):
     super().__init__(*args, **kwargs)
     self.age_classifier = Classifier(
       input_shape=self._input_shape,
       dropout=self.dropout,
       lin_blocks=self.n_layers,
-      lin_neurons=self.n_hidden)
+      lin_neurons=self.n_hidden,
+      out_neurons=10)
     self.gender_classifier = Classifier(
       input_shape=self._input_shape,
       dropout=self.dropout,
       lin_blocks=self.n_layers,
-      lin_neurons=self.n_hidden)
+      lin_neurons=self.n_hidden,
+      out_neurons=3)
+    self.fn_loss = nn.CrossEntropyLoss()
+    self.age_coef = age_coef
+    self.gen_coef = gen_coef
 
   def forward(self, batch: PaddedBatch):
-    y = super(DomainBackprop, self).forward(batch)
+    y, X = super(DomainBackprop, self).forward(batch, return_feat=True)
+    if self.training:
+      age = self.age_classifier(X).squeeze(1)
+      gen = self.gender_classifier(X).squeeze(1)
+      age_true = batch.age.data
+      gen_true = batch.gender.data
+      # maximizing the loss here
+      losses = -(self.age_coef * self.fn_loss(age, age_true) +
+                 self.gen_coef * self.fn_loss(gen, gen_true))
+      return ModelOutput(outputs=y, losses=losses)
     return y
 
 
@@ -359,10 +382,21 @@ def transformer_chn(cfg: Config) -> CoughModel:
   return model
 
 
-def domain_backprop(cfg: Config) -> CoughModel:
+def domain_xvec(cfg: Config) -> CoughModel:
   features = [pretrained_xvec()]
+  age = 1.0
+  gen = 1.0
+  args = cfg.model_args.split(',')
+  if len(args) == 1:
+    age = float(args[0])
+    gen = float(args[0])
+  elif len(args) > 1:
+    age = float(args[0])
+    gen = float(args[1])
   model = DomainBackprop(
-    features,
+    age_coef=age,
+    gen_coef=gen,
+    features=features,
     dropout=cfg.dropout,
     n_target=2,
     n_steps_priming=cfg.steps_priming)
