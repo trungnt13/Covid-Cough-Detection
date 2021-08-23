@@ -30,7 +30,8 @@ from typing import Tuple
 import numpy as np
 import pytorch_lightning as pl
 import torch.nn
-from sklearn.metrics import auc as auc_score, roc_curve, confusion_matrix
+from sklearn.metrics import auc as auc_score, roc_curve, confusion_matrix, \
+  f1_score
 from speechbrain.dataio.dataloader import SaveableDataLoader
 from speechbrain.dataio.dataset import DynamicItemDataset
 from speechbrain.dataio.sampler import ReproducibleWeightedRandomSampler, \
@@ -127,7 +128,9 @@ def to_loader(ds: DynamicItemDataset,
   )
 
 
-def get_model_path(model, overwrite: bool = False) -> Tuple[str, str]:
+def get_model_path(model,
+                   overwrite: bool = False,
+                   monitor: str = 'val_f1') -> Tuple[str, str]:
   path = os.path.join(SAVE_PATH, model.name)
   if overwrite and os.path.exists(path):
     print(' * Overwrite path:', path)
@@ -138,7 +141,7 @@ def get_model_path(model, overwrite: bool = False) -> Tuple[str, str]:
   # higher is better
   checkpoints = glob.glob(f'{path}/**/model-*.ckpt', recursive=True)
   if len(checkpoints) > 0:
-    for k in ['val_auc', 'val_acc', 'valid_auc', 'valid_acc', ]:
+    for k in [monitor, 'val_auc', 'val_acc', 'valid_auc', 'valid_acc']:
       if k in checkpoints[0]:
         key = k
         break
@@ -232,18 +235,21 @@ class TrainModule(pl.LightningModule):
   def validation_epoch_end(self, outputs):
     acc = np.mean([o['acc'].cpu().numpy() for o in outputs])
     # calculate AUC
-    true = torch.cat([o['true'] for o in outputs], 0)
-    pred = torch.cat([o['pred'] for o in outputs], 0)
+    true = torch.cat([o['true'] for o in outputs], 0).cpu().numpy()
+    pred = torch.cat([o['pred'] for o in outputs], 0).cpu().numpy()
+    # f1 score
+    f1 = f1_score(true, pred)
+    if np.isnan(f1) or np.isinf(f1):
+      f1 = 0.
     # row: true_labels
-    print(f'\n\n{confusion_matrix(true.cpu().numpy(), pred.cpu().numpy())}\n')
-    fpr, tpr, thresholds = roc_curve(true.cpu().numpy(),
-                                     pred.cpu().numpy(),
-                                     pos_label=1)
+    print(f'\n\n{confusion_matrix(true, pred)}\n')
+    fpr, tpr, thresholds = roc_curve(true, pred, pos_label=1)
     auc = auc_score(fpr, tpr)
     if np.isnan(auc) or np.isinf(auc):
       auc = 0
     self.log('val_acc', torch.tensor(acc), prog_bar=True)
     self.log('val_auc', torch.tensor(auc), prog_bar=True)
+    self.log('val_f1', torch.tensor(f1), prog_bar=True)
     # print the learning rate
     for pg in self.optimizers().param_groups:
       self.log('lr', pg.get('lr'), prog_bar=True)
@@ -274,7 +280,8 @@ class TrainModule(pl.LightningModule):
 def train_covid_detector(model: CoughModel,
                          train: DynamicItemDataset,
                          valid: Optional[DynamicItemDataset] = None,
-                         target: str = 'result'):
+                         target: str = 'result',
+                         monitor: str = 'val_f1'):
   path, best_path = get_model_path(model, overwrite=CFG.overwrite)
 
   model = TrainModule(model,
@@ -287,12 +294,12 @@ def train_covid_detector(model: CoughModel,
     gradient_clip_val=CFG.grad_clip,
     gradient_clip_algorithm='norm',
     callbacks=[
-      pl.callbacks.ModelCheckpoint(filename='model-{val_auc:.2f}',
-                                   monitor='val_auc',
+      pl.callbacks.ModelCheckpoint(filename='model-{%s:.2f}' % monitor,
+                                   monitor='val_f1',
                                    mode='max',
                                    save_top_k=5,
                                    verbose=True),
-      pl.callbacks.EarlyStopping('val_auc',
+      pl.callbacks.EarlyStopping(monitor,
                                  mode='max',
                                  patience=CFG.patience,
                                  verbose=True),
@@ -358,6 +365,8 @@ def evaluate_covid_detector(model: torch.nn.Module):
 # Main
 # ===========================================================================
 def main():
+  # print(pretrained_sepformer().modules)
+  # exit()
   ## create the dataset
   if CFG.task == 'covid':
     outputs = ('signal', 'result', 'age', 'gender')

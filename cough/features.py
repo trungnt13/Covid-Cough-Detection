@@ -13,7 +13,7 @@ from speechbrain.dataio.encoder import CategoricalEncoder
 from speechbrain.pretrained import EncoderDecoderASR, EncoderClassifier, \
   SpectralMaskEnhancement
 
-from cough.config import SAMPLE_RATE
+from config import SAMPLE_RATE
 
 
 def preemphasis(input: torch.tensor, coef: float = 0.97) -> torch.tensor:
