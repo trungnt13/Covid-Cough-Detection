@@ -160,7 +160,7 @@ def get_model_path(model) -> Tuple[str, str]:
       key=lambda p: float(
         next(re.finditer(f'{key}=\d+\.\d+', p)).group().split('=')[-1]),
       reverse=True)
-    best_path = best_path[0]
+    best_path = best_path[CFG.top]
   else:
     best_path = None
   print(' * Best model at path:', best_path)
@@ -307,7 +307,7 @@ def train_covid_detector(model: CoughModel,
       pl.callbacks.ModelCheckpoint(filename='model-{%s:.2f}' % monitor,
                                    monitor='val_f1',
                                    mode='max',
-                                   save_top_k=5,
+                                   save_top_k=20,
                                    verbose=True),
       pl.callbacks.EarlyStopping(monitor,
                                  mode='max',
@@ -330,6 +330,15 @@ def train_covid_detector(model: CoughModel,
 # ===========================================================================
 # Training contrastive model
 # ===========================================================================
+class ContrastiveModule(pl.LightningModule):
+  def __init__(self,
+               model: CoughModel,
+               lr: float = 1e-4):
+    super().__init__()
+    self.model = model
+    self.lr = lr
+
+
 def train_contrastive(model: CoughModel,
                       train_anchor: DynamicItemDataset,
                       train_pos: DynamicItemDataset,

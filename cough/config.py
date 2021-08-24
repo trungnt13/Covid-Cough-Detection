@@ -91,6 +91,8 @@ class Config:
   prefix: str = ''
   # which metric for monitoring validation performance
   monitor: str = 'val_f1'
+  # which model selected for evaluation
+  top: int = 0
 
 
 # ===========================================================================

@@ -8,7 +8,7 @@ MODEL=contrastive_xvec
 TASK="contrastive"
 PREFIX="contr"
 ARGS='0.05,0.05'
-BS=4
+BS=8
 
 # all arguments is defined in config.py Config
 # careful overwrite will delete everything in the exist folder
@@ -20,7 +20,7 @@ python cough/train.py \
   -oversampling True \
   -bs $BS \
   -pos_weight_rescale 0.5 \
-  -random_cut 10 \
+  -random_cut 15 \
   -lr 0.0001 \
   -epochs 1000 \
   -ncpu 4 \
