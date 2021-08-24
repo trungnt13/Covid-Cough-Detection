@@ -211,7 +211,18 @@ class SimpleClassifier(CoughModel):
                n_layers: int = 2,
                n_target: int = 2,
                n_steps_priming: int = 1000,
-               n_inputs_classifier: int = 1):
+               # these are for subclass configurations
+               n_inputs_classifier: int = 1,
+               perturb_prob=0.8,
+               drop_freq_prob=0.8,
+               drop_chunk_prob=0.8,
+               speeds=(90, 95, 100, 105, 110),
+               drop_freq_count_low=2,
+               drop_freq_count_high=5,
+               drop_chunk_count_low=2,
+               drop_chunk_count_high=8,
+               drop_chunk_length_low=1000,
+               drop_chunk_noise_factor=0.1):
     super(SimpleClassifier, self).__init__(features, name)
     self.dropout = dropout
     self.n_steps_priming = int(n_steps_priming)
@@ -220,18 +231,18 @@ class SimpleClassifier(CoughModel):
     self.n_target = n_target
 
     self.augmenter = TimeDomainSpecAugment(
-      perturb_prob=0.8,
-      drop_freq_prob=0.8,
-      drop_chunk_prob=0.8,
-      speeds=[90, 95, 100, 105, 110],
+      perturb_prob=perturb_prob,
+      drop_freq_prob=drop_freq_prob,
+      drop_chunk_prob=drop_chunk_prob,
+      speeds=speeds,
       sample_rate=SAMPLE_RATE,
-      drop_freq_count_low=2,
-      drop_freq_count_high=5,
-      drop_chunk_count_low=2,
-      drop_chunk_count_high=8,
-      drop_chunk_length_low=1000,
+      drop_freq_count_low=drop_freq_count_low,
+      drop_freq_count_high=drop_freq_count_high,
+      drop_chunk_count_low=drop_chunk_count_low,
+      drop_chunk_count_high=drop_chunk_count_high,
+      drop_chunk_length_low=drop_chunk_length_low,
       drop_chunk_length_high=SAMPLE_RATE,
-      drop_chunk_noise_factor=0.1)
+      drop_chunk_noise_factor=drop_chunk_noise_factor)
 
     shape = self._input_shape[:-1] + \
             (self._input_shape[-1] * n_inputs_classifier,)
@@ -291,35 +302,50 @@ class SimpleClassifier(CoughModel):
     return y
 
 
-def _match_len(signal, min_len, rand):
-  l = signal.shape[1]
+def _match(wavs, lengths, min_batch, min_len, rand):
+  l = wavs.shape[1]
   if l > min_len:
     i = rand.randint(0, l - min_len - 1)
-    signal = signal[:, i: i + min_len]
-  return signal
+    wavs = wavs[:min_batch, i: i + min_len]
+    lengths = lengths[:min_batch]
+  return wavs, lengths
 
 
 class ContrastiveLearner(SimpleClassifier):
 
   def __init__(self, *args, **kwargs):
-    super(ContrastiveLearner, self).__init__(n_inputs_classifier=2,
-                                             *args,
-                                             **kwargs)
+    super(ContrastiveLearner, self).__init__(
+      n_inputs_classifier=2,
+      perturb_prob=0.95,
+      drop_freq_prob=0.95,
+      drop_chunk_prob=0.95,
+      speeds=(85, 90, 95, 100, 105, 110, 115),
+      drop_freq_count_low=2,
+      drop_freq_count_high=8,
+      drop_chunk_count_low=2,
+      drop_chunk_count_high=10,
+      drop_chunk_length_low=500,
+      drop_chunk_noise_factor=0.,
+      *args,
+      **kwargs)
     self.rand = np.random.RandomState(SEED)
-    self.fn_bce = nn.BCEWithLogitsLoss()
+    self.fn_bce_reduce = nn.BCEWithLogitsLoss()
+    self.fn_bce_none = nn.BCEWithLogitsLoss(reduction="none")
 
   def forward(self,
               anchor: PaddedBatch,
               positive: PaddedBatch,
-              negative: PaddedBatch):
+              negative: PaddedBatch,
+              reduce: bool = True):
     a, a_l = anchor.signal.data, anchor.signal.lengths
     p, p_l = positive.signal.data, positive.signal.lengths
     n, n_l = negative.signal.data, negative.signal.lengths
     # cut all three to even length
     min_len = min(a.shape[1], p.shape[1], n.shape[1])
-    a = _match_len(a, min_len=min_len, rand=self.rand)
-    p = _match_len(p, min_len=min_len, rand=self.rand)
-    n = _match_len(n, min_len=min_len, rand=self.rand)
+    min_batch = min(a.shape[0], p.shape[0], n.shape[0])
+    a, a_l = _match(a, a_l, min_batch, min_len, rand=self.rand)
+    p, p_l = _match(p, p_l, min_batch, min_len, rand=self.rand)
+    n, n_l = _match(n, n_l, min_batch, min_len, rand=self.rand)
 
     # augment and get embedding
     signal_clean = torch.cat([a, p, n], 0)
@@ -369,7 +395,10 @@ class ContrastiveLearner(SimpleClassifier):
                          ])
     targets = targets.unsqueeze(1).unsqueeze(1)
     outputs = self.classifier(samples)
-    loss = self.fn_bce(outputs, targets)
+    if reduce:
+      loss = self.fn_bce_reduce(outputs, targets)
+    else:
+      loss = self.fn_bce_none(outputs, targets)
     return loss
 
 

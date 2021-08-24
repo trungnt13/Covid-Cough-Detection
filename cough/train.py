@@ -40,7 +40,7 @@ from speechbrain.dataio.sampler import ReproducibleWeightedRandomSampler, \
 from tqdm import tqdm
 
 from config import SEED, META_DATA, get_json, SAVE_PATH, POS_WEIGHT, Config, \
-  ZIP_FILES
+  ZIP_FILES, DATA_SEED
 from features import AudioRead, VAD, LabelEncoder
 from models import *
 from torch.optim import lr_scheduler
@@ -67,6 +67,7 @@ logger = getLogger(__name__)
 np.random.seed(SEED)
 torch.random.manual_seed(SEED)
 random.seed(SEED)
+pl.seed_everything(SEED)
 CFG = Config()
 
 
@@ -102,7 +103,8 @@ def init_dataset(
   return ds
 
 
-def to_loader(ds: DynamicItemDataset, num_workers: int = 0, is_training=True):
+def to_loader(ds: DynamicItemDataset, num_workers: int = 0,
+              is_training=True, drop_last=False):
   sampler = None
   if is_training:
     if CFG.oversampling:
@@ -131,7 +133,7 @@ def to_loader(ds: DynamicItemDataset, num_workers: int = 0, is_training=True):
     sampler=sampler,
     collate_fn=PaddedBatch,
     num_workers=num_workers,
-    drop_last=False,
+    drop_last=drop_last,
     batch_size=CFG.bs if is_training else 8,
     pin_memory=True if torch.cuda.is_available() else False,
   )
@@ -141,7 +143,7 @@ def get_model_path(model) -> Tuple[str, str]:
   overwrite = CFG.overwrite
   monitor = CFG.monitor
   prefix = '' if len(CFG.prefix) == 0 else f'{CFG.prefix}_'
-  path = os.path.join(SAVE_PATH, f'{prefix}{model.name}')
+  path = os.path.join(SAVE_PATH, f'{prefix}{model.name}_{DATA_SEED}')
   if overwrite and os.path.exists(path):
     print(' * Overwrite path:', path)
     shutil.rmtree(path)
@@ -151,16 +153,20 @@ def get_model_path(model) -> Tuple[str, str]:
   # higher is better
   checkpoints = glob.glob(f'{path}/**/model-*.ckpt', recursive=True)
   if len(checkpoints) > 0:
-    for k in [monitor, 'val_auc', 'val_acc', 'valid_auc', 'valid_acc']:
+    for k in [monitor, 'val_loss']:
       if k in checkpoints[0]:
         key = k
         break
+    if 'loss' in key:
+      reverse = False  # smaller better
+    else:
+      reverse = True  # higher better
     best_path = sorted(
       checkpoints,
       key=lambda p: float(
         next(re.finditer(f'{key}=\d+\.\d+', p)).group().split('=')[-1]),
-      reverse=True)
-    best_path = best_path[0]
+      reverse=reverse)
+    best_path = best_path[CFG.top]
   else:
     best_path = None
   print(' * Best model at path:', best_path)
@@ -184,17 +190,15 @@ class TrainModule(pl.LightningModule):
 
   def __init__(self,
                model: CoughModel,
-               target: str = 'result',
-               label_noise: Optional[float] = 0.1,
-               lr: float = 1e-4):
+               target: str = 'result'):
     super().__init__()
     self.model = model
-    self.lr = lr
     self.fn_bce = torch.nn.BCEWithLogitsLoss(
       pos_weight=torch.tensor(CFG.pos_weight_rescale * POS_WEIGHT))
     self.fn_ce = torch.nn.CrossEntropyLoss()
     self.target = target
-    self.label_noise = float(label_noise)
+    self.label_noise = float(CFG.label_noise)
+    self.lr = float(CFG.lr)
 
   def forward(self, x: PaddedBatch, proba: bool = False):
     # in lightning, forward defines the prediction/inference actions
@@ -294,10 +298,7 @@ def train_covid_detector(model: CoughModel,
                          monitor: str = 'val_f1'):
   path, best_path = get_model_path(model)
 
-  model = TrainModule(model,
-                      target=target,
-                      label_noise=CFG.label_noise,
-                      lr=CFG.lr)
+  model = TrainModule(model, target=target)
   trainer = pl.Trainer(
     gpus=1,
     default_root_dir=path,
@@ -305,9 +306,9 @@ def train_covid_detector(model: CoughModel,
     gradient_clip_algorithm='norm',
     callbacks=[
       pl.callbacks.ModelCheckpoint(filename='model-{%s:.2f}' % monitor,
-                                   monitor='val_f1',
+                                   monitor=monitor,
                                    mode='max',
-                                   save_top_k=5,
+                                   save_top_k=20,
                                    verbose=True),
       pl.callbacks.EarlyStopping(monitor,
                                  mode='max',
@@ -330,24 +331,78 @@ def train_covid_detector(model: CoughModel,
 # ===========================================================================
 # Training contrastive model
 # ===========================================================================
+class ContrastiveModule(TrainModule):
+
+  def forward(self, X: PaddedBatch):
+    wavs = X.signal.data
+    lengths = X.signal.lengths
+    model: ContrastiveLearner = self.model
+    return model.encode(wavs, lengths)
+
+  def training_step(self, batch, batch_idx):
+    anchor, pos, neg = batch['a'], batch['p'], batch['n']
+    loss = self.model(anchor, pos, neg)
+    self.log('train_loss', loss)
+    return loss
+
+  def validation_step(self, batch, batch_idx):
+    anchor, pos, neg = batch['a'], batch['p'], batch['n']
+    loss = self.model(anchor, pos, neg, reduce=False)
+    return dict(val_loss=loss)
+
+  def validation_epoch_end(self, outputs):
+    val_loss = torch.cat([i['val_loss'] for i in outputs]).mean()
+    self.log('val_loss', val_loss, prog_bar=True)
+    return dict(val_loss=val_loss)
+
+
 def train_contrastive(model: CoughModel,
-                      train_anchor: DynamicItemDataset,
-                      train_pos: DynamicItemDataset,
-                      train_neg: DynamicItemDataset,
-                      valid: Optional[DynamicItemDataset] = None):
+                      train: List[DynamicItemDataset],
+                      valid: List[DynamicItemDataset]):
   path, best_path = get_model_path(model)
   # no need oversampling
   CFG.oversampling = False
-  anchor = to_loader(train_anchor, num_workers=max(1, CFG.ncpu // 2),
-                     is_training=True)
-  pos = to_loader(train_pos, num_workers=max(1, CFG.ncpu // 2),
-                  is_training=True)
-  neg = to_loader(train_neg, num_workers=max(1, CFG.ncpu // 2),
-                  is_training=True)
-  
-  for a, p, n in zip(anchor, pos, neg):
-    print(model(a, p, n).shape)
-  exit()
+
+  train = [to_loader(i, num_workers=max(1, CFG.ncpu // 2),
+                     is_training=True, drop_last=True)
+           for i in train]
+  valid = [to_loader(i, num_workers=0, is_training=False, drop_last=True)
+           for i in valid]
+
+  model = ContrastiveModule(model)
+  trainer = pl.Trainer(
+    gpus=1,
+    default_root_dir=path,
+    gradient_clip_val=CFG.grad_clip,
+    gradient_clip_algorithm='norm',
+    callbacks=[
+      pl.callbacks.ModelCheckpoint(filename='model-{val_loss:.2f}',
+                                   monitor='val_loss',
+                                   mode='min',
+                                   save_top_k=20,
+                                   verbose=True),
+      pl.callbacks.EarlyStopping('val_loss',
+                                 mode='min',
+                                 patience=CFG.patience,
+                                 verbose=True),
+      TerminateOnNaN(),
+    ],
+    max_epochs=CFG.epochs,
+    val_check_interval=0.5,
+    resume_from_checkpoint=best_path,
+  )
+
+  from pytorch_lightning.trainer.supporters import CombinedLoader
+  names = ['a', 'p', 'n']
+  train = CombinedLoader({k: v for k, v in zip(names, train)},
+                         mode='max_size_cycle')
+  valid = CombinedLoader({k: v for k, v in zip(names, valid)},
+                         mode='max_size_cycle')
+  trainer.fit(
+    model,
+    train_dataloaders=train,
+    val_dataloaders=valid
+  )
 
 
 # ===========================================================================
@@ -400,34 +455,31 @@ def evaluate_covid_detector(model: torch.nn.Module):
 def main():
   # print(pretrained_sepformer().modules)
   # exit()
+  train_percent = 0.8
   ## create the dataset
   if CFG.task == 'covid':
     outputs = ('signal', 'result', 'age', 'gender')
     train = init_dataset('final_train',
-                         split=(0., 0.9),
+                         split=(0., train_percent),
                          random_cut=CFG.random_cut,
                          outputs=outputs)
     valid = init_dataset('final_train',
-                         split=(0.9, 1.0),
+                         split=(train_percent, 1.0),
                          random_cut=-1,
                          outputs=outputs)
   elif CFG.task == 'contrastive':
     outputs = ('signal', 'result', 'age', 'gender')
-    train_pos = init_dataset('final_train',
-                             split=(0., 0.9),
-                             random_cut=CFG.random_cut,
-                             only_result=1,
-                             outputs=outputs)
-    train_neg = init_dataset('final_train',
-                             split=(0., 0.9),
-                             random_cut=CFG.random_cut,
-                             only_result=1,
-                             outputs=outputs)
-    valid = init_dataset('final_train',
-                         split=(0.9, 1.0),
-                         random_cut=-1,
-                         only_result=0,
-                         outputs=outputs)
+    kw = dict(partition='final_train', split=(0., train_percent),
+              random_cut=CFG.random_cut, outputs=outputs)
+    train_anchor = init_dataset(only_result=1, **kw)
+    train_pos = init_dataset(only_result=1, **kw)
+    train_neg = init_dataset(only_result=0, **kw)
+
+    kw = dict(partition='final_train', split=(train_percent, 1.0),
+              random_cut=CFG.random_cut, outputs=outputs)
+    valid_anchor = init_dataset(only_result=1, **kw)
+    valid_pos = init_dataset(only_result=1, **kw)
+    valid_neg = init_dataset(only_result=0, **kw)
   else:
     raise NotImplementedError(f'No support for task={CFG.task}')
 
@@ -453,6 +505,14 @@ def main():
   # assign model.name (important for saving path)
   model.name = CFG.model
 
+  ## save the config
+  path, _ = get_model_path(model)
+  cfg_path = os.path.join(path, 'cfg.yaml')
+  with open(cfg_path, 'w') as f:
+    print('Save config to path:', cfg_path)
+    for k, v in CFG.__dict__.items():
+      f.write(f'{k}:{v}\n')
+
   ## running the task
   if CFG.eval:
     if CFG.task == 'covid':
@@ -465,10 +525,8 @@ def main():
       train_covid_detector(model, train, valid=valid, target='result')
     elif CFG.task == 'contrastive':
       train_contrastive(model,
-                        train_anchor=train_pos,
-                        train_pos=train_pos,
-                        train_neg=train_neg,
-                        valid=valid)
+                        train=[train_anchor, train_pos, train_neg],
+                        valid=[valid_anchor, valid_pos, valid_neg])
     else:
       raise NotImplementedError(
         f'No support for training mode task="{CFG.task}"')
@@ -497,6 +555,8 @@ def _read_arguments():
     print(' - ', k, ':', v)
   # rescale the steps according to batch size
   CFG.steps_priming = int(CFG.steps_priming / (CFG.bs / 16))
+  if CFG.eval:
+    CFG.overwrite = False
 
 
 if __name__ == '__main__':

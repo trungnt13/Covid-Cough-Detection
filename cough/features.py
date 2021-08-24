@@ -162,7 +162,7 @@ class LabelEncoder(torch.nn.Module):
   takes = ['meta']
   provides = ['result', 'gender', 'age']
 
-  def __init__(self, pseudo_labeler=None):
+  def __init__(self, pseudo_labeling=False):
     super().__init__()
     self.gender_encoder = dict(unknown=0,
                                female=1,

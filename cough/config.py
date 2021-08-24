@@ -17,7 +17,9 @@ from tqdm import tqdm
 # ===========================================================================
 # Constants
 # ===========================================================================
-SEED = 1
+SEED = int(os.environ.get('SEED', 1))
+DATA_SEED = int(os.environ.get('DATA_SEED', 1))
+
 SAMPLE_RATE = int(os.environ.get('COVID_SR', 8000))
 # path to the downloaded *.zip
 COVID_PATH = Path(os.environ.get('COVID_PATH', '/mnt/sdb1/covid_data'))
@@ -82,6 +84,7 @@ class Config:
   # - 'gender': train a gender classifier
   # - 'age': train an age classifier
   # - 'contrastive' : pretrain contrastive learning
+  # - 'pseudolabel'
   task: str = 'covid'
   # name of the model defined in models.py
   model: str = 'simple_xvec'
@@ -91,6 +94,8 @@ class Config:
   prefix: str = ''
   # which metric for monitoring validation performance
   monitor: str = 'val_f1'
+  # which model selected for evaluation
+  top: int = 0
 
 
 # ===========================================================================
@@ -122,6 +127,8 @@ PATH = _extract_zip()
 # === cache and save path
 CACHE_PATH = os.path.join(COVID_PATH, 'cache')
 SAVE_PATH = os.path.join(COVID_PATH, 'results')
+PSEUDOLABEL_PATH = os.path.join(COVID_PATH, 'pseudolabel')
+
 for path in [CACHE_PATH, SAVE_PATH]:
   if not os.path.exists(path):
     os.makedirs(path)
@@ -205,8 +212,7 @@ WAV_META = _wav_meta()
 # ===========================================================================
 def get_json(partition: str,
              start: float = 0.0,
-             end: float = 1.0,
-             seed: int = 1) -> Path:
+             end: float = 1.0) -> Path:
   """path, gender, age, result
 
   result=-1 for test set
@@ -239,7 +245,7 @@ def get_json(partition: str,
     row['sr'] = sr
     data.append((uuid, dict(path=f, meta=row)))
   # === 3. shuffle and split
-  rand = np.random.RandomState(seed=seed)
+  rand = np.random.RandomState(seed=DATA_SEED)
   rand.shuffle(data)
   n = len(data)
   start = int(n * start)
@@ -248,7 +254,7 @@ def get_json(partition: str,
   data = dict(data)
   # === 4. save to JSON
   path = os.path.join(CACHE_PATH,
-                      f'{partition}_{start:g}_{end:g}_{seed:d}.json')
+                      f'{partition}_{start:g}_{end:g}_{DATA_SEED:d}.json')
   with open(path, 'w') as f:
     json.dump(data, f)
   return Path(path)
