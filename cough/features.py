@@ -15,7 +15,7 @@ from speechbrain.dataio.encoder import CategoricalEncoder
 from speechbrain.pretrained import EncoderDecoderASR, EncoderClassifier, \
   SpectralMaskEnhancement
 from scipy import stats
-from config import SAMPLE_RATE, PSEUDOLABEL_PATH
+from config import SAMPLE_RATE, PSEUDOLABEL_PATH, SEED
 
 
 def preemphasis(input: torch.tensor, coef: float = 0.97) -> torch.tensor:
@@ -167,7 +167,8 @@ class LabelEncoder(torch.nn.Module):
   def __init__(self,
                pseudo_labeling=False,
                pseudo_threshold=0.5,
-               pseudo_soft=False):
+               pseudo_soft=False,
+               pseudo_rand=False):
     super().__init__()
     self.gender_encoder = dict(unknown=0,
                                female=1,
@@ -189,7 +190,9 @@ class LabelEncoder(torch.nn.Module):
                            1: 1,
                            -1: -1}
     # use raw probability value instead of hard value
+    self.rand = np.random.RandomState(SEED)
     self.pseudo_soft = pseudo_soft
+    self.pseudo_rand = bool(pseudo_rand)
     self.pseudo_labels = []
     self.pseudo_threshold = pseudo_threshold
     if pseudo_labeling:
@@ -204,12 +207,20 @@ class LabelEncoder(torch.nn.Module):
     age = self.age_encoder[meta.get('subject_age', 'unknown')]
     gender = self.gender_encoder[meta.get('subject_gender', 'unknown')]
     if len(self.pseudo_labels) > 0 > result:
-      if self.pseudo_soft:
-        result = np.mean([i[meta['uuid']] for i in self.pseudo_labels])
+      ####
+      if self.pseudo_rand:
+        label = self.rand.choice(self.pseudo_labels, 1)
+        result = label[meta['uuid']]
+        if not self.pseudo_soft:
+          result = int(result > self.pseudo_threshold)
+      ####
       else:
-        result = int(
-          stats.mode([i[meta['uuid']] > self.pseudo_threshold
-                      for i in self.pseudo_labels]).mode)
+        if self.pseudo_soft:
+          result = np.mean([i[meta['uuid']] for i in self.pseudo_labels])
+        else:
+          result = int(
+            stats.mode([i[meta['uuid']] > self.pseudo_threshold
+                        for i in self.pseudo_labels]).mode)
     return result, gender, age
 
 

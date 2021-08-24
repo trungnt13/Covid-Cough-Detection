@@ -99,6 +99,7 @@ class Config:
   # enable using pseudolabel
   pseudolabel: bool = False
   pseudosoft: bool = False
+  pseudorand: bool = False
 
 
 # ===========================================================================

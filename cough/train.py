@@ -119,7 +119,9 @@ def init_dataset(
   # vad, energies
   ds.add_dynamic_item(VAD(), takes=VAD.takes, provides=VAD.provides)
   # result, gender, age
-  ds.add_dynamic_item(LabelEncoder(pseudo_labeling=CFG.pseudolabel),
+  ds.add_dynamic_item(LabelEncoder(pseudo_labeling=CFG.pseudolabel,
+                                   pseudo_rand=CFG.pseudorand,
+                                   pseudo_soft=CFG.pseudosoft),
                       takes=LabelEncoder.takes,
                       provides=LabelEncoder.provides)
   ds.set_output_keys(outputs)
