@@ -207,8 +207,7 @@ WAV_META = _wav_meta()
 # ===========================================================================
 def get_json(partition: str,
              start: float = 0.0,
-             end: float = 1.0,
-             seed: int = 1) -> Path:
+             end: float = 1.0) -> Path:
   """path, gender, age, result
 
   result=-1 for test set
@@ -241,7 +240,7 @@ def get_json(partition: str,
     row['sr'] = sr
     data.append((uuid, dict(path=f, meta=row)))
   # === 3. shuffle and split
-  rand = np.random.RandomState(seed=seed)
+  rand = np.random.RandomState(seed=SEED)
   rand.shuffle(data)
   n = len(data)
   start = int(n * start)
@@ -250,7 +249,7 @@ def get_json(partition: str,
   data = dict(data)
   # === 4. save to JSON
   path = os.path.join(CACHE_PATH,
-                      f'{partition}_{start:g}_{end:g}_{seed:d}.json')
+                      f'{partition}_{start:g}_{end:g}_{SEED:d}.json')
   with open(path, 'w') as f:
     json.dump(data, f)
   return Path(path)
