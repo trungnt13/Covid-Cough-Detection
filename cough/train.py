@@ -414,7 +414,7 @@ def train_contrastive(model: CoughModel,
 # For evaluation
 # ===========================================================================
 def evaluate_covid_detector(model: torch.nn.Module):
-  path, best_path = get_model_path(model, override=False)
+  path, best_path = get_model_path(model, overwrite=False)
   if best_path is None:
     raise RuntimeError(f'No model found at path: {path}')
   model = TrainModule.load_from_checkpoint(
