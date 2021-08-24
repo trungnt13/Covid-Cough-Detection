@@ -139,13 +139,18 @@ def to_loader(ds: DynamicItemDataset, num_workers: int = 0,
   )
 
 
-def get_model_path(model) -> Tuple[str, str]:
-  overwrite = CFG.overwrite
+def get_model_path(model, overwrite=False) -> Tuple[str, str]:
+  overwrite = CFG.overwrite & overwrite
   monitor = CFG.monitor
   prefix = '' if len(CFG.prefix) == 0 else f'{CFG.prefix}_'
   path = os.path.join(SAVE_PATH, f'{prefix}{model.name}_{DATA_SEED}')
   if overwrite and os.path.exists(path):
     print(' * Overwrite path:', path)
+    backup_path = path + '.bk'
+    if os.path.exists(backup_path):
+      shutil.rmtree(backup_path)
+    print(' * Backup path:', backup_path)
+    shutil.copytree(path, backup_path)
     shutil.rmtree(path)
   if not os.path.exists(path):
     os.makedirs(path)
@@ -296,7 +301,7 @@ def train_covid_detector(model: CoughModel,
                          valid: Optional[DynamicItemDataset] = None,
                          target: str = 'result',
                          monitor: str = 'val_f1'):
-  path, best_path = get_model_path(model)
+  path, best_path = get_model_path(model, overwrite=False)
 
   model = TrainModule(model, target=target)
   trainer = pl.Trainer(
@@ -359,7 +364,7 @@ class ContrastiveModule(TrainModule):
 def train_contrastive(model: CoughModel,
                       train: List[DynamicItemDataset],
                       valid: List[DynamicItemDataset]):
-  path, best_path = get_model_path(model)
+  path, best_path = get_model_path(model, overwrite=False)
   # no need oversampling
   CFG.oversampling = False
 
@@ -409,7 +414,7 @@ def train_contrastive(model: CoughModel,
 # For evaluation
 # ===========================================================================
 def evaluate_covid_detector(model: torch.nn.Module):
-  path, best_path = get_model_path(model)
+  path, best_path = get_model_path(model, override=False)
   if best_path is None:
     raise RuntimeError(f'No model found at path: {path}')
   model = TrainModule.load_from_checkpoint(
@@ -506,7 +511,8 @@ def main():
   model.name = CFG.model
 
   ## save the config
-  path, _ = get_model_path(model)
+  # only overwrite here
+  path, _ = get_model_path(model, overwrite=True)
   cfg_path = os.path.join(path, 'cfg.yaml')
   with open(cfg_path, 'w') as f:
     print('Save config to path:', cfg_path)
