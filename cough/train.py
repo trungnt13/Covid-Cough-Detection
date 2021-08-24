@@ -344,7 +344,7 @@ def train_contrastive(model: CoughModel,
                   is_training=True)
   neg = to_loader(train_neg, num_workers=max(1, CFG.ncpu // 2),
                   is_training=True)
-  
+
   for a, p, n in zip(anchor, pos, neg):
     print(model(a, p, n).shape)
   exit()
@@ -452,6 +452,14 @@ def main():
   model = fn_model(CFG)
   # assign model.name (important for saving path)
   model.name = CFG.model
+
+  ## save the config
+  path, _ = get_model_path(model)
+  cfg_path = os.path.join(path, 'cfg.yaml')
+  with open(cfg_path, 'w') as f:
+    print('Save config to path:', cfg_path)
+    for k, v in CFG.__dict__.items():
+      f.write(f'{k}:{v}\n')
 
   ## running the task
   if CFG.eval:
