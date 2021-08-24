@@ -141,7 +141,7 @@ def get_model_path(model) -> Tuple[str, str]:
   overwrite = CFG.overwrite
   monitor = CFG.monitor
   prefix = '' if len(CFG.prefix) == 0 else f'{CFG.prefix}_'
-  path = os.path.join(SAVE_PATH, f'{prefix}{model.name}')
+  path = os.path.join(SAVE_PATH, f'{prefix}{model.name}_seed{SEED}')
   if overwrite and os.path.exists(path):
     print(' * Overwrite path:', path)
     shutil.rmtree(path)
