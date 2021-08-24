@@ -85,6 +85,7 @@ class Config:
   # - 'gender': train a gender classifier
   # - 'age': train an age classifier
   # - 'contrastive' : pretrain contrastive learning
+  # - 'pseudolabel'
   task: str = 'covid'
   # name of the model defined in models.py
   model: str = 'simple_xvec'

@@ -211,7 +211,18 @@ class SimpleClassifier(CoughModel):
                n_layers: int = 2,
                n_target: int = 2,
                n_steps_priming: int = 1000,
-               n_inputs_classifier: int = 1):
+               # these are for subclass configurations
+               n_inputs_classifier: int = 1,
+               perturb_prob=0.8,
+               drop_freq_prob=0.8,
+               drop_chunk_prob=0.8,
+               speeds=(90, 95, 100, 105, 110),
+               drop_freq_count_low=2,
+               drop_freq_count_high=5,
+               drop_chunk_count_low=2,
+               drop_chunk_count_high=8,
+               drop_chunk_length_low=1000,
+               drop_chunk_noise_factor=0.1):
     super(SimpleClassifier, self).__init__(features, name)
     self.dropout = dropout
     self.n_steps_priming = int(n_steps_priming)
@@ -220,18 +231,18 @@ class SimpleClassifier(CoughModel):
     self.n_target = n_target
 
     self.augmenter = TimeDomainSpecAugment(
-      perturb_prob=0.8,
-      drop_freq_prob=0.8,
-      drop_chunk_prob=0.8,
-      speeds=[90, 95, 100, 105, 110],
+      perturb_prob=perturb_prob,
+      drop_freq_prob=drop_freq_prob,
+      drop_chunk_prob=drop_chunk_prob,
+      speeds=speeds,
       sample_rate=SAMPLE_RATE,
-      drop_freq_count_low=2,
-      drop_freq_count_high=5,
-      drop_chunk_count_low=2,
-      drop_chunk_count_high=8,
-      drop_chunk_length_low=1000,
+      drop_freq_count_low=drop_freq_count_low,
+      drop_freq_count_high=drop_freq_count_high,
+      drop_chunk_count_low=drop_chunk_count_low,
+      drop_chunk_count_high=drop_chunk_count_high,
+      drop_chunk_length_low=drop_chunk_length_low,
       drop_chunk_length_high=SAMPLE_RATE,
-      drop_chunk_noise_factor=0.1)
+      drop_chunk_noise_factor=drop_chunk_noise_factor)
 
     shape = self._input_shape[:-1] + \
             (self._input_shape[-1] * n_inputs_classifier,)
@@ -303,9 +314,20 @@ def _match(wavs, lengths, min_batch, min_len, rand):
 class ContrastiveLearner(SimpleClassifier):
 
   def __init__(self, *args, **kwargs):
-    super(ContrastiveLearner, self).__init__(n_inputs_classifier=2,
-                                             *args,
-                                             **kwargs)
+    super(ContrastiveLearner, self).__init__(
+      n_inputs_classifier=2,
+      perturb_prob=0.95,
+      drop_freq_prob=0.95,
+      drop_chunk_prob=0.95,
+      speeds=(85, 90, 95, 100, 105, 110, 115),
+      drop_freq_count_low=2,
+      drop_freq_count_high=8,
+      drop_chunk_count_low=2,
+      drop_chunk_count_high=10,
+      drop_chunk_length_low=500,
+      drop_chunk_noise_factor=0.,
+      *args,
+      **kwargs)
     self.rand = np.random.RandomState(SEED)
     self.fn_bce_reduce = nn.BCEWithLogitsLoss()
     self.fn_bce_none = nn.BCEWithLogitsLoss(reduction="none")

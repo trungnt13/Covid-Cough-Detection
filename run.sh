@@ -10,7 +10,7 @@ export DATA_SEED=1
 MODEL=contrastive_xvec
 TASK="contrastive"
 PREFIX="contr"
-BS=50
+BS=40
 
 # all arguments is defined in config.py Config
 # careful overwrite will delete everything in the exist folder
