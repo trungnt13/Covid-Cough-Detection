@@ -15,36 +15,34 @@ VAD:
 - https://kaldi-asr.org/doc/voice-activity-detection_8cc_source.html
 - https://github.com/pytorch/audio/blob/master/examples/interactive_asr/vad.py#L38
 """
+import dataclasses
+import json
 import argparse
 import glob
 import inspect
-import os
 import pickle
 import random
 import re
 import shutil
 import zipfile
 from collections import defaultdict
-from logging import getLogger
-from typing import Tuple, Any, Dict
+from typing import Tuple
 
-import numpy as np
 import pytorch_lightning as pl
 import torch.nn
 from sklearn.metrics import auc as auc_score, roc_curve, confusion_matrix, \
   f1_score
-from speechbrain.dataio.dataio import load_data_json
 from speechbrain.dataio.dataloader import SaveableDataLoader
 from speechbrain.dataio.dataset import DynamicItemDataset
 from speechbrain.dataio.sampler import ReproducibleWeightedRandomSampler, \
   ReproducibleRandomSampler
+from torch.optim import lr_scheduler
 from tqdm import tqdm
 
-from config import SEED, META_DATA, get_json, SAVE_PATH, POS_WEIGHT, Config, \
-  ZIP_FILES, DATA_SEED, PSEUDOLABEL_PATH
+from config import META_DATA, get_json, SAVE_PATH, POS_WEIGHT, ZIP_FILES, \
+  DATA_SEED, PSEUDOLABEL_PATH
 from features import AudioRead, VAD, LabelEncoder
 from models import *
-from torch.optim import lr_scheduler
 
 logger = getLogger(__name__)
 
@@ -72,14 +70,37 @@ pl.seed_everything(SEED)
 CFG = Config()
 
 
+@dataclasses.dataclass()
+class Partition:
+  name: str = 'final_train'
+  start: float = 0.0
+  end: float = 1.0
+
+
 def init_dataset(
-    partition: Union[str, Sequence[str]],
-    split: Tuple[float, float] = (0.0, 1.0),
+    partition: Union[Partition, List[Partition]],
     random_cut: float = -1,
     outputs: Sequence[str] = ('signal', 'result'),
     only_result: Optional[int] = None
 ) -> Union[DynamicItemDataset, SaveableDataLoader]:
-  json_path = get_json(partition, start=split[0], end=split[1])
+  if isinstance(partition, Partition):
+    json_path = get_json(partition.name,
+                         start=partition.start, end=partition.end)
+  else:
+    json_path = [get_json(p.name, start=p.start, end=p.end)
+                 for p in partition]
+    name = '_'.join([os.path.basename(i).split('.')[0] for i in json_path])
+    name += '.json'
+    data = dict()
+    for path in json_path:
+      with open(path, 'r') as f:
+        data.update(json.load(f))
+    data = [(k, v) for k, v in data.items()]
+    np.random.shuffle(data)
+    data = dict(data)
+    json_path = os.path.join(CACHE_PATH, name)
+    with open(json_path, 'w') as f:
+      json.dump(data, f)
   # path, meta, id
   ds = DynamicItemDataset.from_json(json_path)
   # pre-filter much faster
@@ -98,7 +119,8 @@ def init_dataset(
   # vad, energies
   ds.add_dynamic_item(VAD(), takes=VAD.takes, provides=VAD.provides)
   # result, gender, age
-  ds.add_dynamic_item(LabelEncoder(), takes=LabelEncoder.takes,
+  ds.add_dynamic_item(LabelEncoder(pseudo_labeling=CFG.pseudolabel),
+                      takes=LabelEncoder.takes,
                       provides=LabelEncoder.provides)
   ds.set_output_keys(outputs)
   return ds
@@ -340,20 +362,17 @@ def train_covid_detector(model: CoughModel,
 class ContrastiveModule(TrainModule):
 
   def forward(self, X: PaddedBatch):
-    wavs = X.signal.data
-    lengths = X.signal.lengths
-    model: ContrastiveLearner = self.model
-    return model.encode(wavs, lengths)
+    return self.model(X)
 
   def training_step(self, batch, batch_idx):
     anchor, pos, neg = batch['a'], batch['p'], batch['n']
-    loss = self.model(anchor, pos, neg)
+    loss = self.model([anchor, pos, neg])
     self.log('train_loss', loss)
     return loss
 
   def validation_step(self, batch, batch_idx):
     anchor, pos, neg = batch['a'], batch['p'], batch['n']
-    loss = self.model(anchor, pos, neg, reduce=False)
+    loss = self.model([anchor, pos, neg], reduce=False)
     return dict(val_loss=loss)
 
   def validation_epoch_end(self, outputs):
@@ -430,7 +449,7 @@ def evaluate_covid_detector(model: torch.nn.Module):
     for key in test_key:
       if key not in ZIP_FILES:
         continue
-      test = init_dataset(key,
+      test = init_dataset(Partition(name=key),
                           random_cut=-1,
                           outputs=('signal', 'id'))
       results = dict()
@@ -474,7 +493,7 @@ def pseudo_labeling(model: torch.nn.Module):
     for key in test_key:
       if key not in ZIP_FILES:
         continue
-      test = init_dataset(key,
+      test = init_dataset(Partition(name=key),
                           random_cut=-1,
                           outputs=('signal', 'id'))
       for batch in tqdm(to_loader(test, is_training=False,
@@ -497,27 +516,26 @@ def main():
   # print(pretrained_sepformer().modules)
   # exit()
   train_percent = 0.8
+  train_ds = Partition(name='final_train', start=0.0, end=train_percent)
+  if CFG.pseudolabel:
+    train_ds = [train_ds, Partition(name='extra_train',
+                                    start=0.0,
+                                    end=1.0)]
+  valid_ds = Partition(name='final_train', start=train_percent, end=1.0)
+
   ## create the dataset
   if CFG.task == 'covid':
     outputs = ('signal', 'result', 'age', 'gender')
-    train = init_dataset('final_train',
-                         split=(0., train_percent),
-                         random_cut=CFG.random_cut,
-                         outputs=outputs)
-    valid = init_dataset('final_train',
-                         split=(train_percent, 1.0),
-                         random_cut=-1,
-                         outputs=outputs)
+    train = init_dataset(train_ds, random_cut=CFG.random_cut, outputs=outputs)
+    valid = init_dataset(valid_ds, random_cut=-1, outputs=outputs)
   elif CFG.task == 'contrastive':
     outputs = ('signal', 'result', 'age', 'gender')
-    kw = dict(partition='final_train', split=(0., train_percent),
-              random_cut=CFG.random_cut, outputs=outputs)
+    kw = dict(partition=train_ds, random_cut=CFG.random_cut, outputs=outputs)
     train_anchor = init_dataset(only_result=1, **kw)
     train_pos = init_dataset(only_result=1, **kw)
     train_neg = init_dataset(only_result=0, **kw)
 
-    kw = dict(partition='final_train', split=(train_percent, 1.0),
-              random_cut=CFG.random_cut, outputs=outputs)
+    kw = dict(partition=valid_ds, random_cut=-1, outputs=outputs)
     valid_anchor = init_dataset(only_result=1, **kw)
     valid_pos = init_dataset(only_result=1, **kw)
     valid_neg = init_dataset(only_result=0, **kw)

@@ -96,6 +96,9 @@ class Config:
   monitor: str = 'val_f1'
   # which model selected for evaluation
   top: int = 0
+  # enable using pseudolabel
+  pseudolabel: bool = False
+  pseudosoft: bool = False
 
 
 # ===========================================================================
@@ -129,7 +132,7 @@ CACHE_PATH = os.path.join(COVID_PATH, 'cache')
 SAVE_PATH = os.path.join(COVID_PATH, 'results')
 PSEUDOLABEL_PATH = os.path.join(COVID_PATH, 'pseudolabel')
 
-for path in [CACHE_PATH, SAVE_PATH]:
+for path in [CACHE_PATH, SAVE_PATH, PSEUDOLABEL_PATH]:
   if not os.path.exists(path):
     os.makedirs(path)
 

@@ -1,3 +1,5 @@
+import glob
+import pickle
 from collections import defaultdict
 from random import random
 from typing import Optional, Tuple, Any, Dict
@@ -12,8 +14,8 @@ from torch.nn import functional as F
 from speechbrain.dataio.encoder import CategoricalEncoder
 from speechbrain.pretrained import EncoderDecoderASR, EncoderClassifier, \
   SpectralMaskEnhancement
-
-from config import SAMPLE_RATE
+from scipy import stats
+from config import SAMPLE_RATE, PSEUDOLABEL_PATH
 
 
 def preemphasis(input: torch.tensor, coef: float = 0.97) -> torch.tensor:
@@ -162,7 +164,10 @@ class LabelEncoder(torch.nn.Module):
   takes = ['meta']
   provides = ['result', 'gender', 'age']
 
-  def __init__(self, pseudo_labeling=False):
+  def __init__(self,
+               pseudo_labeling=False,
+               pseudo_threshold=0.5,
+               pseudo_soft=False):
     super().__init__()
     self.gender_encoder = dict(unknown=0,
                                female=1,
@@ -178,14 +183,33 @@ class LabelEncoder(torch.nn.Module):
                             group_65_78=8,
                             group_79_98=9)
     self.result_encoder = {'unknown': -1,
+                           '0': 0,
+                           '1': 1,
                            0: 0,
                            1: 1,
                            -1: -1}
+    # use raw probability value instead of hard value
+    self.pseudo_soft = pseudo_soft
+    self.pseudo_labels = []
+    self.pseudo_threshold = pseudo_threshold
+    if pseudo_labeling:
+      for f in glob.glob(f'{PSEUDOLABEL_PATH}/*'):
+        with open(f, 'rb') as f:
+          self.pseudo_labels.append(pickle.load(f))
+      assert len(self.pseudo_labels) > 0, \
+        f'No pseudo labels found at {PSEUDOLABEL_PATH}'
 
   def forward(self, meta: Dict[str, Any]):
     result = self.result_encoder[meta.get('assessment_result', -1)]
     age = self.age_encoder[meta.get('subject_age', 'unknown')]
     gender = self.gender_encoder[meta.get('subject_gender', 'unknown')]
+    if len(self.pseudo_labels) > 0 > result:
+      if self.pseudo_soft:
+        result = np.mean([i[meta['uuid']] for i in self.pseudo_labels])
+      else:
+        result = int(
+          stats.mode([i[meta['uuid']] > self.pseudo_threshold
+                      for i in self.pseudo_labels]).mode)
     return result, gender, age
 
 

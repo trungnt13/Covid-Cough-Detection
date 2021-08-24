@@ -238,7 +238,6 @@ class SimpleClassifier(CoughModel):
                n_steps_priming: int = 1000,
                # these are for subclass configurations
                mix_noise: bool = True,
-               n_inputs_classifier: int = 1,
                perturb_prob=0.8,
                drop_freq_prob=0.8,
                drop_chunk_prob=0.8,
@@ -273,9 +272,7 @@ class SimpleClassifier(CoughModel):
       drop_chunk_length_high=SAMPLE_RATE,
       drop_chunk_noise_factor=drop_chunk_noise_factor)
 
-    shape = self._input_shape[:-1] + \
-            (self._input_shape[-1] * n_inputs_classifier,)
-    self.classifier = Classifier(shape,
+    self.classifier = Classifier(self._input_shape,
                                  dropout=dropout,
                                  lin_blocks=n_layers,
                                  lin_neurons=n_hidden,
@@ -346,7 +343,6 @@ class ContrastiveLearner(SimpleClassifier):
 
   def __init__(self, *args, **kwargs):
     super(ContrastiveLearner, self).__init__(
-      n_inputs_classifier=2,
       perturb_prob=0.95,
       drop_freq_prob=0.95,
       drop_chunk_prob=0.95,
@@ -363,14 +359,30 @@ class ContrastiveLearner(SimpleClassifier):
     self.fn_bce_reduce = nn.BCEWithLogitsLoss()
     self.fn_bce_none = nn.BCEWithLogitsLoss(reduction="none")
 
+    shape = self._input_shape[:-1] + \
+            (self._input_shape[-1] * 2,)
+    self.discriminator = Classifier(
+      input_shape=shape,
+      dropout=self.dropout,
+      lin_blocks=1,
+      lin_neurons=2048,
+      out_neurons=1
+    )
+
   def forward(self,
-              anchor: PaddedBatch,
-              positive: PaddedBatch,
-              negative: PaddedBatch,
+              inputs,
               reduce: bool = True):
+    if isinstance(inputs, PaddedBatch):
+      return super(ContrastiveLearner, self).forward(inputs)
+
+    anchor: PaddedBatch = inputs[0]
+    positive: PaddedBatch = inputs[1]
+    negative: PaddedBatch = inputs[2]
+
     a, a_l = anchor.signal.data, anchor.signal.lengths
     p, p_l = positive.signal.data, positive.signal.lengths
     n, n_l = negative.signal.data, negative.signal.lengths
+
     # cut all three to even length
     min_len = min(a.shape[1], p.shape[1], n.shape[1])
     min_batch = min(a.shape[0], p.shape[0], n.shape[0])
@@ -424,7 +436,7 @@ class ContrastiveLearner(SimpleClassifier):
                          torch.zeros(positive.shape[0], device=positive.device),
                          ])
     targets = targets.unsqueeze(1).unsqueeze(1)
-    outputs = self.classifier(samples)
+    outputs = self.discriminator(samples)
     if reduce:
       loss = self.fn_bce_reduce(outputs, targets)
     else:

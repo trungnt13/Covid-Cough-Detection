@@ -21,7 +21,7 @@ python cough/train.py \
   -bs $BS \
   -dropout 0.5 \
   -random_cut 15 \
-  -lr 0.0001 \
+  -lr 0.0005 \
   -epochs 10000 \
   -ncpu 4 \
   --overwrite
