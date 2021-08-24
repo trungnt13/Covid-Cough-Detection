@@ -409,31 +409,32 @@ def evaluate_covid_detector(model: torch.nn.Module):
 def main():
   # print(pretrained_sepformer().modules)
   # exit()
+  train_percent = 0.8
   ## create the dataset
   if CFG.task == 'covid':
     outputs = ('signal', 'result', 'age', 'gender')
     train = init_dataset('final_train',
-                         split=(0., 0.9),
+                         split=(0., train_percent),
                          random_cut=CFG.random_cut,
                          outputs=outputs)
     valid = init_dataset('final_train',
-                         split=(0.9, 1.0),
+                         split=(train_percent, 1.0),
                          random_cut=-1,
                          outputs=outputs)
   elif CFG.task == 'contrastive':
     outputs = ('signal', 'result', 'age', 'gender')
     train_pos = init_dataset('final_train',
-                             split=(0., 0.9),
+                             split=(0., train_percent),
                              random_cut=CFG.random_cut,
                              only_result=1,
                              outputs=outputs)
     train_neg = init_dataset('final_train',
-                             split=(0., 0.9),
+                             split=(0., train_percent),
                              random_cut=CFG.random_cut,
                              only_result=1,
                              outputs=outputs)
     valid = init_dataset('final_train',
-                         split=(0.9, 1.0),
+                         split=(train_percent, 1.0),
                          random_cut=-1,
                          only_result=0,
                          outputs=outputs)
