@@ -2,6 +2,8 @@ export COVID_PATH="/mnt/sdb1/covid_data"
 export COVID_DEVICE="cuda:0"
 # If you use pretrained wav2vec2, SR=16000
 export COVID_SR=16000
+export SEED=1
+export DATA_SEED=1
 
 # Config
 MODEL=contrastive_xvec

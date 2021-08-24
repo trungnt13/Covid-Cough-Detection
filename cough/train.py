@@ -40,7 +40,7 @@ from speechbrain.dataio.sampler import ReproducibleWeightedRandomSampler, \
 from tqdm import tqdm
 
 from config import SEED, META_DATA, get_json, SAVE_PATH, POS_WEIGHT, Config, \
-  ZIP_FILES
+  ZIP_FILES, DATA_SEED
 from features import AudioRead, VAD, LabelEncoder
 from models import *
 from torch.optim import lr_scheduler
@@ -67,6 +67,7 @@ logger = getLogger(__name__)
 np.random.seed(SEED)
 torch.random.manual_seed(SEED)
 random.seed(SEED)
+pl.seed_everything(SEED)
 CFG = Config()
 
 
@@ -141,7 +142,7 @@ def get_model_path(model) -> Tuple[str, str]:
   overwrite = CFG.overwrite
   monitor = CFG.monitor
   prefix = '' if len(CFG.prefix) == 0 else f'{CFG.prefix}_'
-  path = os.path.join(SAVE_PATH, f'{prefix}{model.name}_seed{SEED}')
+  path = os.path.join(SAVE_PATH, f'{prefix}{model.name}_seed{DATA_SEED}')
   if overwrite and os.path.exists(path):
     print(' * Overwrite path:', path)
     shutil.rmtree(path)

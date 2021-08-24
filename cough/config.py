@@ -17,7 +17,9 @@ from tqdm import tqdm
 # ===========================================================================
 # Constants
 # ===========================================================================
-SEED = 1
+SEED = int(os.environ.get('SEED', 1))
+DATA_SEED = int(os.environ.get('DATA_SEED', 1))
+
 SAMPLE_RATE = int(os.environ.get('COVID_SR', 8000))
 # path to the downloaded *.zip
 COVID_PATH = Path(os.environ.get('COVID_PATH', '/mnt/sdb1/covid_data'))
@@ -240,7 +242,7 @@ def get_json(partition: str,
     row['sr'] = sr
     data.append((uuid, dict(path=f, meta=row)))
   # === 3. shuffle and split
-  rand = np.random.RandomState(seed=SEED)
+  rand = np.random.RandomState(seed=DATA_SEED)
   rand.shuffle(data)
   n = len(data)
   start = int(n * start)
@@ -249,7 +251,7 @@ def get_json(partition: str,
   data = dict(data)
   # === 4. save to JSON
   path = os.path.join(CACHE_PATH,
-                      f'{partition}_{start:g}_{end:g}_{SEED:d}.json')
+                      f'{partition}_{start:g}_{end:g}_{DATA_SEED:d}.json')
   with open(path, 'w') as f:
     json.dump(data, f)
   return Path(path)
