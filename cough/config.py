@@ -24,6 +24,7 @@ SAMPLE_RATE = int(os.environ.get('COVID_SR', 8000))
 # path to the downloaded *.zip
 COVID_PATH = Path(os.environ.get('COVID_PATH', '/mnt/sdb1/covid_data'))
 print(f'* Read Covid data at path COVID_PATH={COVID_PATH}')
+PSEUDOLABEL_PATH = os.path.join(COVID_PATH, 'pseudolabel')
 
 ZIP_FILES = dict(
   # warmup

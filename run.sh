@@ -5,29 +5,51 @@ export COVID_SR=16000
 export SEED=1
 export DATA_SEED=1
 
+## Contrastive learning
 # Config
 MODEL=contrastive_xvec
 TASK="contrastive"
 PREFIX="contr"
-ARGS='0.05,0.05'
-BS=8
+BS=50
 
 # all arguments is defined in config.py Config
 # careful overwrite will delete everything in the exist folder
 python cough/train.py \
   -model $MODEL \
-  -model_args $ARGS \
   -prefix $PREFIX \
   -task $TASK \
-  -oversampling True \
   -bs $BS \
-  -pos_weight_rescale 0.5 \
+  -dropout 0.5 \
   -random_cut 15 \
   -lr 0.0001 \
-  -epochs 1000 \
+  -epochs 10000 \
   -ncpu 4 \
   --overwrite
 
+## main training
+#MODEL=simple_xvec
+#TASK="covid"
+#PREFIX="cut15"
+#ARGS='0.05,0.05'
+#BS=32
+#
+## all arguments is defined in config.py Config
+## careful overwrite will delete everything in the exist folder
+#python cough/train.py \
+#  -model $MODEL \
+#  -model_args $ARGS \
+#  -prefix $PREFIX \
+#  -task $TASK \
+#  -oversampling True \
+#  -bs $BS \
+#  -pos_weight_rescale 0.5 \
+#  -random_cut 15 \
+#  -lr 0.0001 \
+#  -epochs 1000 \
+#  -ncpu 4 \
+#  --overwrite
+
+## eval
 #python cough/train.py \
 #  -model $MODEL \
 #  -model_args $ARGS \

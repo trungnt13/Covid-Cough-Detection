@@ -291,12 +291,13 @@ class SimpleClassifier(CoughModel):
     return y
 
 
-def _match_len(signal, min_len, rand):
-  l = signal.shape[1]
+def _match(wavs, lengths, min_batch, min_len, rand):
+  l = wavs.shape[1]
   if l > min_len:
     i = rand.randint(0, l - min_len - 1)
-    signal = signal[:, i: i + min_len]
-  return signal
+    wavs = wavs[:min_batch, i: i + min_len]
+    lengths = lengths[:min_batch]
+  return wavs, lengths
 
 
 class ContrastiveLearner(SimpleClassifier):
@@ -306,20 +307,23 @@ class ContrastiveLearner(SimpleClassifier):
                                              *args,
                                              **kwargs)
     self.rand = np.random.RandomState(SEED)
-    self.fn_bce = nn.BCEWithLogitsLoss()
+    self.fn_bce_reduce = nn.BCEWithLogitsLoss()
+    self.fn_bce_none = nn.BCEWithLogitsLoss(reduction="none")
 
   def forward(self,
               anchor: PaddedBatch,
               positive: PaddedBatch,
-              negative: PaddedBatch):
+              negative: PaddedBatch,
+              reduce: bool = True):
     a, a_l = anchor.signal.data, anchor.signal.lengths
     p, p_l = positive.signal.data, positive.signal.lengths
     n, n_l = negative.signal.data, negative.signal.lengths
     # cut all three to even length
     min_len = min(a.shape[1], p.shape[1], n.shape[1])
-    a = _match_len(a, min_len=min_len, rand=self.rand)
-    p = _match_len(p, min_len=min_len, rand=self.rand)
-    n = _match_len(n, min_len=min_len, rand=self.rand)
+    min_batch = min(a.shape[0], p.shape[0], n.shape[0])
+    a, a_l = _match(a, a_l, min_batch, min_len, rand=self.rand)
+    p, p_l = _match(p, p_l, min_batch, min_len, rand=self.rand)
+    n, n_l = _match(n, n_l, min_batch, min_len, rand=self.rand)
 
     # augment and get embedding
     signal_clean = torch.cat([a, p, n], 0)
@@ -369,7 +373,10 @@ class ContrastiveLearner(SimpleClassifier):
                          ])
     targets = targets.unsqueeze(1).unsqueeze(1)
     outputs = self.classifier(samples)
-    loss = self.fn_bce(outputs, targets)
+    if reduce:
+      loss = self.fn_bce_reduce(outputs, targets)
+    else:
+      loss = self.fn_bce_none(outputs, targets)
     return loss
 
 
