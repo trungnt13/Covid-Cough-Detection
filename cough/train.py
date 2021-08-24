@@ -25,13 +25,14 @@ import shutil
 import zipfile
 from collections import defaultdict
 from logging import getLogger
-from typing import Tuple
+from typing import Tuple, Any, Dict
 
 import numpy as np
 import pytorch_lightning as pl
 import torch.nn
 from sklearn.metrics import auc as auc_score, roc_curve, confusion_matrix, \
   f1_score
+from speechbrain.dataio.dataio import load_data_json
 from speechbrain.dataio.dataloader import SaveableDataLoader
 from speechbrain.dataio.dataset import DynamicItemDataset
 from speechbrain.dataio.sampler import ReproducibleWeightedRandomSampler, \
@@ -74,10 +75,20 @@ def init_dataset(
     split: Tuple[float, float] = (0.0, 1.0),
     random_cut: float = -1,
     outputs: Sequence[str] = ('signal', 'result'),
+    only_result: Optional[int] = None
 ) -> Union[DynamicItemDataset, SaveableDataLoader]:
   json_path = get_json(partition, start=split[0], end=split[1])
   # path, meta, id
   ds = DynamicItemDataset.from_json(json_path)
+  # pre-filter much faster
+  if only_result is not None:
+    for idx in list(ds.data_ids):
+      result = ds.data[idx]['meta']['assessment_result']
+      if result == 'unknown':
+        result = -1
+      if result != only_result:
+        ds.data_ids.remove(idx)
+        del ds.data[idx]
   # signal, sr, meta
   ds.add_dynamic_item(AudioRead(random_cut=random_cut),
                       takes=AudioRead.takes,
@@ -91,9 +102,7 @@ def init_dataset(
   return ds
 
 
-def to_loader(ds: DynamicItemDataset,
-              num_workers: int = 0,
-              is_training=True):
+def to_loader(ds: DynamicItemDataset, num_workers: int = 0, is_training=True):
   sampler = None
   if is_training:
     if CFG.oversampling:
@@ -128,10 +137,11 @@ def to_loader(ds: DynamicItemDataset,
   )
 
 
-def get_model_path(model,
-                   overwrite: bool = False,
-                   monitor: str = 'val_f1') -> Tuple[str, str]:
-  path = os.path.join(SAVE_PATH, model.name)
+def get_model_path(model) -> Tuple[str, str]:
+  overwrite = CFG.overwrite
+  monitor = CFG.monitor
+  prefix = '' if len(CFG.prefix) == 0 else f'{CFG.prefix}_'
+  path = os.path.join(SAVE_PATH, f'{prefix}{model.name}')
   if overwrite and os.path.exists(path):
     print(' * Overwrite path:', path)
     shutil.rmtree(path)
@@ -282,7 +292,7 @@ def train_covid_detector(model: CoughModel,
                          valid: Optional[DynamicItemDataset] = None,
                          target: str = 'result',
                          monitor: str = 'val_f1'):
-  path, best_path = get_model_path(model, overwrite=CFG.overwrite)
+  path, best_path = get_model_path(model)
 
   model = TrainModule(model,
                       target=target,
@@ -315,6 +325,29 @@ def train_covid_detector(model: CoughModel,
     train_dataloaders=to_loader(train, num_workers=CFG.ncpu),
     val_dataloaders=None if valid is None else
     to_loader(valid, num_workers=2, is_training=False))
+
+
+# ===========================================================================
+# Training contrastive model
+# ===========================================================================
+def train_contrastive(model: CoughModel,
+                      train_anchor: DynamicItemDataset,
+                      train_pos: DynamicItemDataset,
+                      train_neg: DynamicItemDataset,
+                      valid: Optional[DynamicItemDataset] = None):
+  path, best_path = get_model_path(model)
+  # no need oversampling
+  CFG.oversampling = False
+  anchor = to_loader(train_anchor, num_workers=max(1, CFG.ncpu // 2),
+                     is_training=True)
+  pos = to_loader(train_pos, num_workers=max(1, CFG.ncpu // 2),
+                  is_training=True)
+  neg = to_loader(train_neg, num_workers=max(1, CFG.ncpu // 2),
+                  is_training=True)
+  
+  for a, p, n in zip(anchor, pos, neg):
+    print(model(a, p, n).shape)
+  exit()
 
 
 # ===========================================================================
@@ -378,6 +411,23 @@ def main():
                          split=(0.9, 1.0),
                          random_cut=-1,
                          outputs=outputs)
+  elif CFG.task == 'contrastive':
+    outputs = ('signal', 'result', 'age', 'gender')
+    train_pos = init_dataset('final_train',
+                             split=(0., 0.9),
+                             random_cut=CFG.random_cut,
+                             only_result=1,
+                             outputs=outputs)
+    train_neg = init_dataset('final_train',
+                             split=(0., 0.9),
+                             random_cut=CFG.random_cut,
+                             only_result=1,
+                             outputs=outputs)
+    valid = init_dataset('final_train',
+                         split=(0.9, 1.0),
+                         random_cut=-1,
+                         only_result=0,
+                         outputs=outputs)
   else:
     raise NotImplementedError(f'No support for task={CFG.task}')
 
@@ -413,6 +463,12 @@ def main():
   else:
     if CFG.task == 'covid':
       train_covid_detector(model, train, valid=valid, target='result')
+    elif CFG.task == 'contrastive':
+      train_contrastive(model,
+                        train_anchor=train_pos,
+                        train_pos=train_pos,
+                        train_neg=train_neg,
+                        valid=valid)
     else:
       raise NotImplementedError(
         f'No support for training mode task="{CFG.task}"')

@@ -4,16 +4,19 @@ export COVID_DEVICE="cuda:0"
 export COVID_SR=16000
 
 # Config
-MODEL=wav2vec_en
+MODEL=contrastive_xvec
+TASK="contrastive"
+PREFIX="contr"
 ARGS='0.05,0.05'
-BS=12
+BS=4
 
 # all arguments is defined in config.py Config
 # careful overwrite will delete everything in the exist folder
 python cough/train.py \
   -model $MODEL \
   -model_args $ARGS \
-  -task covid \
+  -prefix $PREFIX \
+  -task $TASK \
   -oversampling True \
   -bs $BS \
   -pos_weight_rescale 0.5 \
@@ -25,6 +28,8 @@ python cough/train.py \
 
 #python cough/train.py \
 #  -model $MODEL \
+#  -model_args $ARGS \
+#  -prefix $PREFIX \
 #  -task covid \
 #  -bs 16 \
 #  --eval

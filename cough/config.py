@@ -81,11 +81,16 @@ class Config:
   # - 'covid': main system covid cough detection
   # - 'gender': train a gender classifier
   # - 'age': train an age classifier
+  # - 'contrastive' : pretrain contrastive learning
   task: str = 'covid'
   # name of the model defined in models.py
   model: str = 'simple_xvec'
   # extra arguments for the model, e.g. 0.1,0.2,0.3
   model_args: str = ''
+  # extra prefix for model identification
+  prefix: str = ''
+  # which metric for monitoring validation performance
+  monitor: str = 'val_f1'
 
 
 # ===========================================================================
