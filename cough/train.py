@@ -555,6 +555,8 @@ def _read_arguments():
     print(' - ', k, ':', v)
   # rescale the steps according to batch size
   CFG.steps_priming = int(CFG.steps_priming / (CFG.bs / 16))
+  if CFG.eval:
+    CFG.overwrite = False
 
 
 if __name__ == '__main__':
