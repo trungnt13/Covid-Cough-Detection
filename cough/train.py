@@ -19,6 +19,7 @@ import argparse
 import glob
 import inspect
 import os
+import pickle
 import random
 import re
 import shutil
@@ -40,7 +41,7 @@ from speechbrain.dataio.sampler import ReproducibleWeightedRandomSampler, \
 from tqdm import tqdm
 
 from config import SEED, META_DATA, get_json, SAVE_PATH, POS_WEIGHT, Config, \
-  ZIP_FILES, DATA_SEED
+  ZIP_FILES, DATA_SEED, PSEUDOLABEL_PATH
 from features import AudioRead, VAD, LabelEncoder
 from models import *
 from torch.optim import lr_scheduler
@@ -454,6 +455,41 @@ def evaluate_covid_detector(model: torch.nn.Module):
       os.remove(csv_path)
 
 
+def pseudo_labeling(model: torch.nn.Module):
+  path, best_path = get_model_path(model, overwrite=False)
+  if best_path is None:
+    raise RuntimeError(f'No model found at path: {path}')
+  model = TrainModule.load_from_checkpoint(
+    checkpoint_path=best_path,
+    model=model)
+  # the pretrained model cannot be switch to CPU easily
+  # model.cpu()
+  model.eval()
+
+  test_key = ['final_train', 'extra_train',
+              'final_pub_test', 'final_pri_test']
+  labels = dict()
+  n = 0
+  with torch.no_grad():
+    for key in test_key:
+      if key not in ZIP_FILES:
+        continue
+      test = init_dataset(key,
+                          random_cut=-1,
+                          outputs=('signal', 'id'))
+      for batch in tqdm(to_loader(test, is_training=False,
+                                  num_workers=0),
+                        desc=key):
+        y_proba = model(batch, proba=True).cpu().numpy()
+        for k, v in zip(batch.id, y_proba):
+          n += 1
+          labels[k] = v
+  outpath = os.path.join(PSEUDOLABEL_PATH, os.path.basename(path))
+  with open(outpath, 'wb') as f:
+    pickle.dump(labels, f)
+  print('Save pseudo-labels to', outpath)
+
+
 # ===========================================================================
 # Main
 # ===========================================================================
@@ -485,6 +521,8 @@ def main():
     valid_anchor = init_dataset(only_result=1, **kw)
     valid_pos = init_dataset(only_result=1, **kw)
     valid_neg = init_dataset(only_result=0, **kw)
+  elif CFG.task == 'pseudolabel':
+    pass
   else:
     raise NotImplementedError(f'No support for task={CFG.task}')
 
@@ -529,6 +567,8 @@ def main():
   else:
     if CFG.task == 'covid':
       train_covid_detector(model, train, valid=valid, target='result')
+    elif CFG.task == 'pseudolabel':
+      pseudo_labeling(model)
     elif CFG.task == 'contrastive':
       train_contrastive(model,
                         train=[train_anchor, train_pos, train_neg],
@@ -561,7 +601,7 @@ def _read_arguments():
     print(' - ', k, ':', v)
   # rescale the steps according to batch size
   CFG.steps_priming = int(CFG.steps_priming / (CFG.bs / 16))
-  if CFG.eval:
+  if CFG.eval or CFG.task == 'pseudolabel':
     CFG.overwrite = False
 
 

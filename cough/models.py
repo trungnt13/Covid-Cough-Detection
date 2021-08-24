@@ -1,9 +1,11 @@
 import dataclasses
+import os
 import warnings
 from typing import Union, Callable, List, Sequence, Optional
 
 import numpy as np
 import speechbrain
+import torchaudio.backend.soundfile_backend
 from speechbrain.lobes.augment import TimeDomainSpecAugment
 from speechbrain.nnet.containers import Sequential
 from speechbrain.nnet.normalization import BatchNorm1d
@@ -13,10 +15,11 @@ import torch
 from speechbrain.pretrained import SpeakerRecognition, EncoderClassifier, \
   SepformerSeparation, SpectralMaskEnhancement, EncoderDecoderASR
 from speechbrain.dataio.dataloader import PaddedBatch
+from speechbrain.processing.speech_augmentation import AddNoise
 from torch import nn
 from speechbrain.nnet.pooling import StatisticsPooling
 
-from config import dev, SAMPLE_RATE, Config, SEED
+from config import dev, SAMPLE_RATE, Config, SEED, WAV_FILES, CACHE_PATH
 from logging import getLogger
 
 logger = getLogger('models')
@@ -164,6 +167,28 @@ class Classifier(Sequential):
     )
 
 
+class MixNoise(AddNoise):
+
+  def __init__(self,
+               snr_low=0.1,
+               snr_high=12,
+               mix_prob=0.95):
+    # # ID,duration,wav,wav_format
+    # csv_path = os.path.join(CACHE_PATH, 'noise.csv')
+    # with open(csv_path, 'w') as f:
+    #   f.write(f'ID,duration,wav,wav_format\n')
+    #   for path in WAV_FILES['extra_train']:
+    #     info = torchaudio.info(path)
+    #     duration = info.num_frames / info.sample_rate
+    #     uuid = os.path.basename(path).split('.')[0]
+    #     f.write(f'{uuid},{duration:.2f},{path},wav\n')
+    super(MixNoise, self).__init__(snr_low=snr_low,
+                                   snr_high=snr_high,
+                                   mix_prob=mix_prob,
+                                   pad_noise=True,
+                                   normalize=True)
+
+
 class CoughModel(torch.nn.Module):
 
   def __init__(self, features: List[PretrainedModel], name: str = None):
@@ -212,6 +237,7 @@ class SimpleClassifier(CoughModel):
                n_target: int = 2,
                n_steps_priming: int = 1000,
                # these are for subclass configurations
+               mix_noise: bool = True,
                n_inputs_classifier: int = 1,
                perturb_prob=0.8,
                drop_freq_prob=0.8,
@@ -222,13 +248,16 @@ class SimpleClassifier(CoughModel):
                drop_chunk_count_low=2,
                drop_chunk_count_high=8,
                drop_chunk_length_low=1000,
-               drop_chunk_noise_factor=0.1):
+               drop_chunk_noise_factor=0.):
     super(SimpleClassifier, self).__init__(features, name)
     self.dropout = dropout
     self.n_steps_priming = int(n_steps_priming)
     self.n_hidden = n_hidden
     self.n_layers = n_layers
     self.n_target = n_target
+
+    self.audio_mixer = MixNoise()
+    self.mix_audio = mix_noise
 
     self.augmenter = TimeDomainSpecAugment(
       perturb_prob=perturb_prob,
@@ -256,18 +285,20 @@ class SimpleClassifier(CoughModel):
 
     self.stats_pooling = StatisticsPooling()
 
-  def encode(self, signal, lengths):
+  def encode(self, wavs, lengths):
     X = torch.cat(
-      [f.encode_batch(signal, lengths) for f in self.features], -1)
+      [f.encode_batch(wavs, lengths) for f in self.features], -1)
     # statistical pooling
     if X.shape[1] != 1:
       X = self.stats_pooling(X)
     return X
 
-  def augment(self, signal, lengths):
+  def augment(self, wavs, lengths):
     if self.training:
       # data augmentation
-      signal = self.augmenter(signal, lengths)
+      wavs = self.augmenter(wavs, lengths)
+      if self.mix_audio:
+        wavs = self.audio_mixer(wavs, lengths)
       self.training_steps += 1
       # enable pretrained parameters
       if self.training_stage == 0 and \
@@ -276,7 +307,7 @@ class SimpleClassifier(CoughModel):
         print(f'\n[{self.name}] Enable all pretrained parameters')
         self.set_pretrained_params(trainable=True)
         self.training_stage += 1
-    return signal
+    return wavs
 
   def forward(self, batch: PaddedBatch, return_feat: bool = False):
     signal = batch.signal.data
@@ -372,7 +403,6 @@ class ContrastiveLearner(SimpleClassifier):
                           positive_clean2,
                           positive_noise2,
                           positive_mix2])
-
     # Note: If I switch anchor + negative sample I have another negative
     # sample for free
     negative_clean = torch.cat([emb_clean_anchor, emb_clean_neg], dim=2)
@@ -479,6 +509,16 @@ def contrastive_xvec(cfg: Config) -> ContrastiveLearner:
 def simple_ecapa(cfg: Config) -> CoughModel:
   features = [pretrained_ecapa()]
   model = SimpleClassifier(
+    features,
+    dropout=cfg.dropout,
+    n_target=2,
+    n_steps_priming=cfg.steps_priming)
+  return model
+
+
+def contrastive_ecapa(cfg: Config) -> ContrastiveLearner:
+  features = [pretrained_ecapa()]
+  model = ContrastiveLearner(
     features,
     dropout=cfg.dropout,
     n_target=2,
