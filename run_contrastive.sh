@@ -13,42 +13,43 @@ export DATA_SEED=1
 
 ## Contrastive learning
 # Config
-MODEL=contrastive_xvec
+MODEL=contrastive_ecapa
 TASK="contrastive"
 PREFIX="contr_cut10"
-BS=24
+BS=16
 
 # all arguments is defined in config.py Config
 # careful overwrite will delete everything in the exist folder
-#python cough/train.py \
-#  -model $MODEL \
-#  -prefix $PREFIX \
-#  -task $TASK \
-#  -bs $BS \
-#  -dropout 0.5 \
-#  -random_cut 10 \
-#  -lr 0.0005 \
-#  -epochs 10000 \
-#  -steps_priming 200 \
-#  -ncpu 4 \
-#  -pseudolabel True \
-#  --overwrite
+python cough/train.py \
+  -model $MODEL \
+  -prefix $PREFIX \
+  -task $TASK \
+  -bs $BS \
+  -dropout 0.5 \
+  -random_cut 10 \
+  -lr 0.0005 \
+  -epochs 10000 \
+  -steps_priming 200 \
+  -ncpu 4 \
+  -pseudolabel True \
+  --overwrite
 
 ## fine tuning
 BS=64
 
-#python cough/train.py \
-#  -model $MODEL \
-#  -prefix $PREFIX \
-#  -task covid \
-#  -bs $BS \
-#  -dropout 0.5 \
-#  -random_cut 10 \
-#  -lr 0.0005 \
-#  -epochs 1000 \
-#  -steps_priming 1000 \
-#  -ncpu 4 \
-#  -pseudolabel True
+python cough/train.py \
+  -model $MODEL \
+  -prefix $PREFIX \
+  -task covid \
+  -bs $BS \
+  -dropout 0.5 \
+  -random_cut 10 \
+  -label_noise 0.15 \
+  -lr 0.0005 \
+  -epochs 1000 \
+  -steps_priming 1000 \
+  -ncpu 4 \
+  -pseudolabel True
 
 # evaluating
 python cough/train.py \
