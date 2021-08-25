@@ -42,6 +42,57 @@ def map_fraction(s, e, duration, sr, offset, frames):
   return dict(start=s, end=e)
 
 
+_PSEUDO_LABELER = dict()
+
+
+class PseudoLabeler:
+
+  @staticmethod
+  def get_labeler(pseudo_soft=False, pseudo_rand=False, pseudo_threshold=0.5):
+    key = (pseudo_soft, pseudo_rand, pseudo_threshold)
+    if key in _PSEUDO_LABELER:
+      return _PSEUDO_LABELER[key]
+    l = PseudoLabeler(pseudo_soft, pseudo_rand, pseudo_threshold)
+    _PSEUDO_LABELER[key] = l
+    return l
+
+  def __init__(self,
+               pseudo_soft=False,
+               pseudo_rand=False,
+               pseudo_threshold=0.5):
+    key = (pseudo_soft, pseudo_rand, pseudo_threshold)
+    if key in _PSEUDO_LABELER:
+      raise ValueError('Call static method PseudoLabeler.get_labeler '
+                       'for singleton.')
+    self.rand = np.random.RandomState(SEED)
+    self.pseudo_soft = pseudo_soft
+    self.pseudo_rand = bool(pseudo_rand)
+    self.pseudo_labels = []
+    self.pseudo_threshold = pseudo_threshold
+    for f in glob.glob(f'{PSEUDOLABEL_PATH}/*'):
+      with open(f, 'rb') as f:
+        self.pseudo_labels.append(pickle.load(f))
+    assert len(self.pseudo_labels) > 0, \
+      f'No pseudo labels found at {PSEUDOLABEL_PATH}'
+
+  def label(self, uuid) -> int:
+    ####
+    if self.pseudo_rand:
+      label = self.rand.choice(self.pseudo_labels, 1)
+      result = label[uuid]
+      if not self.pseudo_soft:
+        result = int(result > self.pseudo_threshold)
+    ####
+    else:
+      if self.pseudo_soft:
+        result = np.mean([i[uuid] for i in self.pseudo_labels])
+      else:
+        result = int(
+          stats.mode([i[uuid] > self.pseudo_threshold
+                      for i in self.pseudo_labels]).mode)
+    return result
+
+
 class AudioRead(torch.nn.Module):
   takes = ['path', 'meta']
   provides = ['signal', 'sr', 'meta']
@@ -190,37 +241,18 @@ class LabelEncoder(torch.nn.Module):
                            1: 1,
                            -1: -1}
     # use raw probability value instead of hard value
-    self.rand = np.random.RandomState(SEED)
-    self.pseudo_soft = pseudo_soft
-    self.pseudo_rand = bool(pseudo_rand)
-    self.pseudo_labels = []
-    self.pseudo_threshold = pseudo_threshold
+    self.pseudo_labeler = None
     if pseudo_labeling:
-      for f in glob.glob(f'{PSEUDOLABEL_PATH}/*'):
-        with open(f, 'rb') as f:
-          self.pseudo_labels.append(pickle.load(f))
-      assert len(self.pseudo_labels) > 0, \
-        f'No pseudo labels found at {PSEUDOLABEL_PATH}'
+      self.pseudo_labeler = PseudoLabeler.get_labeler(
+        pseudo_soft=pseudo_soft, pseudo_rand=pseudo_rand,
+        pseudo_threshold=pseudo_threshold)
 
   def forward(self, meta: Dict[str, Any]):
     result = self.result_encoder[meta.get('assessment_result', -1)]
     age = self.age_encoder[meta.get('subject_age', 'unknown')]
     gender = self.gender_encoder[meta.get('subject_gender', 'unknown')]
-    if len(self.pseudo_labels) > 0 > result:
-      ####
-      if self.pseudo_rand:
-        label = self.rand.choice(self.pseudo_labels, 1)
-        result = label[meta['uuid']]
-        if not self.pseudo_soft:
-          result = int(result > self.pseudo_threshold)
-      ####
-      else:
-        if self.pseudo_soft:
-          result = np.mean([i[meta['uuid']] for i in self.pseudo_labels])
-        else:
-          result = int(
-            stats.mode([i[meta['uuid']] > self.pseudo_threshold
-                        for i in self.pseudo_labels]).mode)
+    if self.pseudo_labeler is not None and result < 0:
+      result = self.pseudo_labeler.label(meta['uuid'])
     return result, gender, age
 
 

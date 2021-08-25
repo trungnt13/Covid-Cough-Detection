@@ -9,8 +9,8 @@ export DATA_SEED=1
 # Config
 MODEL=contrastive_xvec
 TASK="contrastive"
-PREFIX="contr"
-BS=32
+PREFIX="contr_cut10"
+BS=25
 
 # all arguments is defined in config.py Config
 # careful overwrite will delete everything in the exist folder
@@ -24,4 +24,5 @@ python cough/train.py \
   -lr 0.0005 \
   -epochs 10000 \
   -ncpu 4 \
+  -pseudolabel True \
   --overwrite

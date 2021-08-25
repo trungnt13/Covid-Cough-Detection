@@ -41,7 +41,7 @@ from tqdm import tqdm
 
 from config import META_DATA, get_json, SAVE_PATH, POS_WEIGHT, ZIP_FILES, \
   DATA_SEED, PSEUDOLABEL_PATH
-from features import AudioRead, VAD, LabelEncoder
+from features import AudioRead, VAD, LabelEncoder, PseudoLabeler
 from models import *
 
 logger = getLogger(__name__)
@@ -83,6 +83,7 @@ def init_dataset(
     outputs: Sequence[str] = ('signal', 'result'),
     only_result: Optional[int] = None
 ) -> Union[DynamicItemDataset, SaveableDataLoader]:
+  # prepare json file
   if isinstance(partition, Partition):
     json_path = get_json(partition.name,
                          start=partition.start, end=partition.end)
@@ -107,8 +108,12 @@ def init_dataset(
   if only_result is not None:
     for idx in list(ds.data_ids):
       result = ds.data[idx]['meta']['assessment_result']
+      if CFG.pseudolabel:
+        labeler = PseudoLabeler.get_labeler(pseudo_soft=CFG.pseudosoft,
+                                            pseudo_rand=CFG.pseudorand)
       if result == 'unknown':
-        result = -1
+        result = labeler.label(ds.data[idx]['meta']['uuid']) \
+          if CFG.pseudolabel else -1
       if result != only_result:
         ds.data_ids.remove(idx)
         del ds.data[idx]
