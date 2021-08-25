@@ -238,6 +238,7 @@ class SimpleClassifier(CoughModel):
                n_steps_priming: int = 1000,
                # these are for subclass configurations
                mix_noise: bool = True,
+               snr_noise: float = 12.,
                perturb_prob=0.8,
                drop_freq_prob=0.8,
                drop_chunk_prob=0.8,
@@ -247,6 +248,7 @@ class SimpleClassifier(CoughModel):
                drop_chunk_count_low=2,
                drop_chunk_count_high=8,
                drop_chunk_length_low=1000,
+               drop_chunk_length_high=2000,
                drop_chunk_noise_factor=0.):
     super(SimpleClassifier, self).__init__(features, name)
     self.dropout = dropout
@@ -255,7 +257,7 @@ class SimpleClassifier(CoughModel):
     self.n_layers = n_layers
     self.n_target = n_target
 
-    self.audio_mixer = MixNoise()
+    self.audio_mixer = MixNoise(snr_high=snr_noise)
     self.mix_audio = mix_noise
 
     self.augmenter = TimeDomainSpecAugment(
@@ -269,7 +271,7 @@ class SimpleClassifier(CoughModel):
       drop_chunk_count_low=drop_chunk_count_low,
       drop_chunk_count_high=drop_chunk_count_high,
       drop_chunk_length_low=drop_chunk_length_low,
-      drop_chunk_length_high=SAMPLE_RATE,
+      drop_chunk_length_high=drop_chunk_length_high,
       drop_chunk_noise_factor=drop_chunk_noise_factor)
 
     self.classifier = Classifier(self._input_shape,
@@ -343,6 +345,8 @@ class ContrastiveLearner(SimpleClassifier):
 
   def __init__(self, *args, **kwargs):
     super(ContrastiveLearner, self).__init__(
+      mix_noise=True,
+      snr_noise=20.,
       perturb_prob=0.95,
       drop_freq_prob=0.95,
       drop_chunk_prob=0.95,
@@ -350,8 +354,9 @@ class ContrastiveLearner(SimpleClassifier):
       drop_freq_count_low=2,
       drop_freq_count_high=8,
       drop_chunk_count_low=2,
-      drop_chunk_count_high=10,
+      drop_chunk_count_high=6,
       drop_chunk_length_low=500,
+      drop_chunk_length_high=4000,
       drop_chunk_noise_factor=0.,
       *args,
       **kwargs)

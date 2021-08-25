@@ -34,7 +34,7 @@ ZIP_FILES = dict(
   final_train=os.path.join(COVID_PATH, 'aicv115m_final_public_train.zip'),
   extra_train=os.path.join(COVID_PATH, 'aicv115m_extra_public_1235samples.zip'),
   final_pub_test=os.path.join(COVID_PATH, 'aicv115m_final_public_test.zip'),
-  # fpri_test0=os.path.join(ROOT_PATH, 'aicv115m_final_private_test.zip'),
+  final_pri_test=os.path.join(COVID_PATH, 'aicv115m_final_private_test.zip'),
 )
 
 _dev = torch.device(os.environ.get("COVID_DEVICE", "cuda:0")

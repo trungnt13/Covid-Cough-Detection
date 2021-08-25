@@ -133,8 +133,11 @@ def init_dataset(
   return ds
 
 
-def to_loader(ds: DynamicItemDataset, num_workers: int = 0,
-              is_training=True, drop_last=False):
+def to_loader(ds: DynamicItemDataset,
+              num_workers: int = 0,
+              is_training=True,
+              drop_last=False,
+              batch_size=None):
   sampler = None
   if is_training:
     if CFG.oversampling:
@@ -158,20 +161,22 @@ def to_loader(ds: DynamicItemDataset, num_workers: int = 0,
     else:
       sampler = ReproducibleRandomSampler(ds, seed=SEED)
   # create data loader
+  bs = CFG.bs if is_training else 8
+  if batch_size is not None:
+    bs = batch_size
   return SaveableDataLoader(
     dataset=ds,
     sampler=sampler,
     collate_fn=PaddedBatch,
     num_workers=num_workers,
     drop_last=drop_last,
-    batch_size=CFG.bs if is_training else 8,
+    batch_size=bs,
     pin_memory=True if torch.cuda.is_available() else False,
   )
 
 
-def get_model_path(model, overwrite=False) -> Tuple[str, str]:
+def get_model_path(model, overwrite=False, monitor='val_f1') -> Tuple[str, str]:
   overwrite = CFG.overwrite & overwrite
-  monitor = CFG.monitor
   prefix = '' if len(CFG.prefix) == 0 else f'{CFG.prefix}_'
   path = os.path.join(SAVE_PATH, f'{prefix}{model.name}_{DATA_SEED}')
   if overwrite and os.path.exists(path):
@@ -188,18 +193,17 @@ def get_model_path(model, overwrite=False) -> Tuple[str, str]:
   # higher is better
   checkpoints = glob.glob(f'{path}/**/model-*.ckpt', recursive=True)
   if len(checkpoints) > 0:
-    for k in [monitor, 'val_loss']:
-      if k in checkpoints[0]:
-        key = k
-        break
-    if 'loss' in key:
+    if 'loss' in monitor:
       reverse = False  # smaller better
     else:
       reverse = True  # higher better
+    pattern = f'{monitor}=\d+\.\d+'
+    checkpoints = list(filter(lambda s: len(re.findall(pattern, s)) > 0,
+                              checkpoints))
     best_path = sorted(
       checkpoints,
       key=lambda p: float(
-        next(re.finditer(f'{key}=\d+\.\d+', p)).group().split('=')[-1]),
+        next(re.finditer(pattern, p)).group().split('=')[-1]),
       reverse=reverse)
     best_path = best_path[CFG.top]
   else:
@@ -331,7 +335,7 @@ def train_covid_detector(model: CoughModel,
                          valid: Optional[DynamicItemDataset] = None,
                          target: str = 'result',
                          monitor: str = 'val_f1'):
-  path, best_path = get_model_path(model, overwrite=False)
+  path, best_path = get_model_path(model, overwrite=False, monitor=monitor)
 
   model = TrainModule(model, target=target)
   trainer = pl.Trainer(
@@ -391,14 +395,15 @@ class ContrastiveModule(TrainModule):
 def train_contrastive(model: CoughModel,
                       train: List[DynamicItemDataset],
                       valid: List[DynamicItemDataset]):
-  path, best_path = get_model_path(model, overwrite=False)
+  path, best_path = get_model_path(model, overwrite=False, monitor='val_loss')
   # no need oversampling
   CFG.oversampling = False
 
   train = [to_loader(i, num_workers=max(1, CFG.ncpu // 2),
                      is_training=True, drop_last=True)
            for i in train]
-  valid = [to_loader(i, num_workers=0, is_training=False, drop_last=True)
+  valid = [to_loader(i, num_workers=2, is_training=False, drop_last=True,
+                     batch_size=5)
            for i in valid]
 
   model = ContrastiveModule(model)
@@ -441,12 +446,13 @@ def train_contrastive(model: CoughModel,
 # For evaluation
 # ===========================================================================
 def evaluate_covid_detector(model: torch.nn.Module):
-  path, best_path = get_model_path(model, overwrite=False)
+  path, best_path = get_model_path(model, overwrite=False, monitor=CFG.monitor)
   if best_path is None:
     raise RuntimeError(f'No model found at path: {path}')
   model = TrainModule.load_from_checkpoint(
     checkpoint_path=best_path,
-    model=model)
+    model=model,
+    strict=False)
   # the pretrained model cannot be switch to CPU easily
   # model.cpu()
   model.eval()
@@ -467,7 +473,7 @@ def evaluate_covid_detector(model: torch.nn.Module):
         y_proba = model(batch, proba=True).cpu().numpy()
         for k, v in zip(batch.id, y_proba):
           results[k] = v
-      uuid_order = list(META_DATA['final_pub_test'].values())[0].uuid
+      uuid_order = list(META_DATA[key].values())[0].uuid
       text = 'uuid,assessment_result\n'
       for k in uuid_order:
         text += f'{k},{results[k]}\n'
@@ -482,7 +488,7 @@ def evaluate_covid_detector(model: torch.nn.Module):
 
 
 def pseudo_labeling(model: torch.nn.Module):
-  path, best_path = get_model_path(model, overwrite=False)
+  path, best_path = get_model_path(model, overwrite=False, monitor=CFG.monitor)
   if best_path is None:
     raise RuntimeError(f'No model found at path: {path}')
   model = TrainModule.load_from_checkpoint(

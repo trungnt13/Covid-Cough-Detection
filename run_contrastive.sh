@@ -16,20 +16,45 @@ export DATA_SEED=1
 MODEL=contrastive_xvec
 TASK="contrastive"
 PREFIX="contr_cut10"
-BS=20
+BS=24
 
 # all arguments is defined in config.py Config
 # careful overwrite will delete everything in the exist folder
+#python cough/train.py \
+#  -model $MODEL \
+#  -prefix $PREFIX \
+#  -task $TASK \
+#  -bs $BS \
+#  -dropout 0.5 \
+#  -random_cut 10 \
+#  -lr 0.0005 \
+#  -epochs 10000 \
+#  -steps_priming 200 \
+#  -ncpu 4 \
+#  -pseudolabel True \
+#  --overwrite
+
+## fine tuning
+BS=64
+
+#python cough/train.py \
+#  -model $MODEL \
+#  -prefix $PREFIX \
+#  -task covid \
+#  -bs $BS \
+#  -dropout 0.5 \
+#  -random_cut 10 \
+#  -lr 0.0005 \
+#  -epochs 1000 \
+#  -steps_priming 1000 \
+#  -ncpu 4 \
+#  -pseudolabel True
+
+# evaluating
 python cough/train.py \
   -model $MODEL \
   -prefix $PREFIX \
-  -task $TASK \
+  -task covid \
   -bs $BS \
-  -dropout 0.5 \
-  -random_cut 10 \
-  -lr 0.0005 \
-  -epochs 10000 \
-  -steps_priming 100 \
-  -ncpu 4 \
-  -pseudolabel True \
-  --overwrite
+  --eval
+
