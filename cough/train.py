@@ -542,7 +542,7 @@ def main():
     train_pos = init_dataset(only_result=1, **kw)
     train_neg = init_dataset(only_result=0, **kw)
 
-    kw = dict(partition=valid_ds, random_cut=-1, outputs=outputs)
+    kw = dict(partition=valid_ds, random_cut=CFG.random_cut, outputs=outputs)
     valid_anchor = init_dataset(only_result=1, **kw)
     valid_pos = init_dataset(only_result=1, **kw)
     valid_neg = init_dataset(only_result=0, **kw)
