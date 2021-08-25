@@ -347,9 +347,9 @@ class ContrastiveLearner(SimpleClassifier):
     super(ContrastiveLearner, self).__init__(
       mix_noise=True,
       snr_noise=20.,
-      perturb_prob=0.95,
-      drop_freq_prob=0.95,
-      drop_chunk_prob=0.95,
+      perturb_prob=0.98,
+      drop_freq_prob=0.98,
+      drop_chunk_prob=0.98,
       speeds=(85, 90, 95, 100, 105, 110, 115),
       drop_freq_count_low=2,
       drop_freq_count_high=8,
