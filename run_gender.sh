@@ -11,37 +11,27 @@ export SEED=1
 export DATA_SEED=1
 
 # main training
-MODEL=simple_xvec
-TASK="covid"
+MODEL=simple_gender
+TASK="gender"
 PREFIX="cut8"
-ARGS='0.05,0.05'
-BS=50
+BS=32
 
 # all arguments is defined in config.py Config
 # careful overwrite will delete everything in the exist folder
 python cough/train.py \
   -model $MODEL \
-  -model_args $ARGS \
   -prefix $PREFIX \
   -task $TASK \
   -oversampling True \
-  -bs $BS \
-  -label_noise 0.15 \
   -pos_weight_rescale 0.5 \
+  -bs $BS \
   -random_cut 8 \
   -lr 0.0005 \
   -epochs 1000 \
-  -steps_priming 1000 \
-  -ncpu 4 \
+  -steps_priming 300 \
+  -ncpu 5 \
   --overwrite
 
-# pseudolabel
-#python cough/train.py \
-#  -model $MODEL \
-#  -prefix $PREFIX \
-#  -task pseudolabel \
-#  -bs $BS
-#
 ## eval
 #python cough/train.py \
 #  -model $MODEL \

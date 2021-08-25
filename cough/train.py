@@ -39,9 +39,9 @@ from speechbrain.dataio.sampler import ReproducibleWeightedRandomSampler, \
 from torch.optim import lr_scheduler
 from tqdm import tqdm
 
-from config import META_DATA, get_json, SAVE_PATH, POS_WEIGHT, ZIP_FILES, \
-  DATA_SEED, PSEUDOLABEL_PATH
-from features import AudioRead, VAD, LabelEncoder, PseudoLabeler
+from config import META_DATA, get_json, SAVE_PATH, COVI_WEIGHT, ZIP_FILES, \
+  DATA_SEED, PSEUDOLABEL_PATH, GEN_WEIGHT
+from features import AudioRead, VAD, LabelEncoder, PseudoLabeler, Pitch
 from models import *
 
 logger = getLogger(__name__)
@@ -121,6 +121,9 @@ def init_dataset(
   ds.add_dynamic_item(AudioRead(random_cut=random_cut),
                       takes=AudioRead.takes,
                       provides=AudioRead.provides)
+  ds.add_dynamic_item(Pitch(),
+                      takes=Pitch.takes,
+                      provides=Pitch.provides)
   # vad, energies
   ds.add_dynamic_item(VAD(), takes=VAD.takes, provides=VAD.provides)
   # result, gender, age
@@ -141,14 +144,20 @@ def to_loader(ds: DynamicItemDataset,
   sampler = None
   if is_training:
     if CFG.oversampling:
+      if CFG.task == 'gender':
+        key = 'subject_gender'
+      elif CFG.task == 'covid':
+        key = 'assessment_result'
+      else:
+        raise NotImplementedError(f'No support for task={CFG.task}.')
       # oversampling with replacement
       weights = {}
       counts = defaultdict(int)
       for v in ds.data.values():
         meta = v['meta']
         uuid = meta['uuid']
-        weights[uuid] = meta['assessment_result']
-        counts[meta['assessment_result']] += 1
+        weights[uuid] = meta[key]
+        counts[meta[key]] += 1
       # normalize
       counts = {k: sum(i for i in counts.values()) / v
                 for k, v in counts.items()}
@@ -232,8 +241,14 @@ class TrainModule(pl.LightningModule):
                target: str = 'result'):
     super().__init__()
     self.model = model
+    if CFG.task == 'gender':
+      weight = GEN_WEIGHT
+    elif CFG.task == 'covid':
+      weight = COVI_WEIGHT
+    else:
+      weight = 1. / CFG.pos_weight_rescale
     self.fn_bce = torch.nn.BCEWithLogitsLoss(
-      pos_weight=torch.tensor(CFG.pos_weight_rescale * POS_WEIGHT))
+      pos_weight=torch.tensor(CFG.pos_weight_rescale * weight))
     self.fn_ce = torch.nn.CrossEntropyLoss()
     self.target = target
     self.label_noise = float(CFG.label_noise)
@@ -487,6 +502,19 @@ def evaluate_covid_detector(model: torch.nn.Module):
       os.remove(csv_path)
 
 
+def evaluate_gender_recognizer(model: torch.nn.Module):
+  path, best_path = get_model_path(model, overwrite=False, monitor=CFG.monitor)
+  if best_path is None:
+    raise RuntimeError(f'No model found at path: {path}')
+  model = TrainModule.load_from_checkpoint(
+    checkpoint_path=best_path,
+    model=model,
+    strict=False)
+  # the pretrained model cannot be switch to CPU easily
+  # model.cpu()
+  model.eval()
+
+
 def pseudo_labeling(model: torch.nn.Module):
   path, best_path = get_model_path(model, overwrite=False, monitor=CFG.monitor)
   if best_path is None:
@@ -554,6 +582,10 @@ def main():
     valid_neg = init_dataset(only_result=0, **kw)
   elif CFG.task == 'pseudolabel':
     pass
+  elif CFG.task == 'gender':
+    outputs = ('signal', 'pitch', 'gender')
+    train = init_dataset(train_ds, random_cut=CFG.random_cut, outputs=outputs)
+    valid = init_dataset(valid_ds, random_cut=-1, outputs=outputs)
   else:
     raise NotImplementedError(f'No support for task={CFG.task}')
 
@@ -592,6 +624,8 @@ def main():
   if CFG.eval:
     if CFG.task == 'covid':
       evaluate_covid_detector(model)
+    elif CFG.task == 'gender':
+      evaluate_gender_recognizer(model)
     else:
       raise NotImplementedError(
         f'No support for evaluation mode task="{CFG.task}"')
@@ -604,6 +638,8 @@ def main():
       train_contrastive(model,
                         train=[train_anchor, train_pos, train_neg],
                         valid=[valid_anchor, valid_pos, valid_neg])
+    elif CFG.task == 'gender':
+      train_covid_detector(model, train, valid=valid, target='gender')
     else:
       raise NotImplementedError(
         f'No support for training mode task="{CFG.task}"')

@@ -22,6 +22,10 @@ from speechbrain.nnet.pooling import StatisticsPooling
 from config import dev, SAMPLE_RATE, Config, SEED, WAV_FILES, CACHE_PATH
 from logging import getLogger
 
+from transformers.models.wav2vec2.modeling_wav2vec2 import \
+  Wav2Vec2FeatureExtractor, Wav2Vec2Config, Wav2Vec2Model, \
+  Wav2Vec2FeatureProjection, Wav2Vec2Encoder
+
 logger = getLogger('models')
 
 
@@ -239,9 +243,9 @@ class SimpleClassifier(CoughModel):
                # these are for subclass configurations
                mix_noise: bool = True,
                snr_noise: float = 12.,
-               perturb_prob=0.8,
-               drop_freq_prob=0.8,
-               drop_chunk_prob=0.8,
+               perturb_prob=0.95,
+               drop_freq_prob=0.95,
+               drop_chunk_prob=0.95,
                speeds=(90, 95, 100, 105, 110),
                drop_freq_count_low=2,
                drop_freq_count_high=5,
@@ -249,7 +253,8 @@ class SimpleClassifier(CoughModel):
                drop_chunk_count_high=8,
                drop_chunk_length_low=1000,
                drop_chunk_length_high=2000,
-               drop_chunk_noise_factor=0.):
+               drop_chunk_noise_factor=0.,
+               classifier_shape=None):
     super(SimpleClassifier, self).__init__(features, name)
     self.dropout = dropout
     self.n_steps_priming = int(n_steps_priming)
@@ -274,11 +279,12 @@ class SimpleClassifier(CoughModel):
       drop_chunk_length_high=drop_chunk_length_high,
       drop_chunk_noise_factor=drop_chunk_noise_factor)
 
-    self.classifier = Classifier(self._input_shape,
-                                 dropout=dropout,
-                                 lin_blocks=n_layers,
-                                 lin_neurons=n_hidden,
-                                 out_neurons=1 if n_target == 2 else n_target)
+    self.classifier = Classifier(
+      self._input_shape if classifier_shape is None else classifier_shape,
+      dropout=dropout,
+      lin_blocks=n_layers,
+      lin_neurons=n_hidden,
+      out_neurons=1 if n_target == 2 else n_target)
     if torch.cuda.is_available():
       self.classifier.cuda()
 
@@ -331,6 +337,64 @@ class SimpleClassifier(CoughModel):
       return y, X
     return y
 
+
+class SimpleGender(SimpleClassifier):
+
+  def __init__(self, *args, **kwargs):
+    features = [pretrained_xvec()]
+    super(SimpleGender, self).__init__(features=features,
+                                       classifier_shape=(5, 1, 1024),
+                                       *args, **kwargs)
+    config = Wav2Vec2Config(
+      conv_dim=(32, 32, 32, 32),
+      conv_stride=(5, 4, 3, 2),
+      conv_kernel=(10, 8, 6, 4),
+      hidden_size=512,
+      feat_proj_dropout=0.1,
+      num_attention_heads=8,
+      num_hidden_layers=3)
+    self.pitch_model = torch.nn.ModuleDict(
+      dict(
+        feature=Wav2Vec2FeatureExtractor(config),
+        project=Wav2Vec2FeatureProjection(config),
+        encoder=Wav2Vec2Encoder(config),
+        final=nn.Sequential(nn.Linear(1024, 512),
+                            nn.Linear(512, 512))
+      )
+    )
+
+  def forward(self, batch: PaddedBatch, return_feat: bool = False):
+    # wavs model
+    wavs = batch.signal.data
+    wavs_lengths = batch.signal.lengths
+    wavs = self.augment(wavs, wavs_lengths)
+    emb = self.encode(wavs, wavs_lengths)
+
+    # pitch model
+    pitch = batch.pitch.data
+
+    pi = self.pitch_model.feature(pitch)
+    pi = pi.transpose(1, 2)
+    pi_h, pi = self.pitch_model.project(pi)
+    pi = self.pitch_model.encoder(pi_h,
+                                  attention_mask=None,
+                                  output_attentions=None,
+                                  output_hidden_states=None,
+                                  return_dict=False)[0]
+    pi = self.stats_pooling(pi)
+    pi = self.pitch_model.final(pi)
+
+    # final model
+    X = torch.cat([emb, pi], -1)
+    y = self.classifier(X).squeeze(1)
+    if y.shape[-1] == 1:
+      y = y.squeeze(-1)
+    return y
+
+
+# ===========================================================================
+# Contrastive learner
+# ===========================================================================
 
 def _match(wavs, lengths, min_batch, min_len, rand):
   l = wavs.shape[1]
@@ -513,6 +577,14 @@ def simple_xvec(cfg: Config) -> CoughModel:
   return model
 
 
+def simple_gender(cfg: Config) -> CoughModel:
+  model = SimpleGender(
+    dropout=cfg.dropout,
+    n_target=2,
+    n_steps_priming=cfg.steps_priming)
+  return model
+
+
 def contrastive_xvec(cfg: Config) -> ContrastiveLearner:
   features = [pretrained_xvec()]
   model = ContrastiveLearner(
@@ -536,6 +608,16 @@ def simple_ecapa(cfg: Config) -> CoughModel:
 def contrastive_ecapa(cfg: Config) -> ContrastiveLearner:
   features = [pretrained_ecapa()]
   model = ContrastiveLearner(
+    features,
+    dropout=cfg.dropout,
+    n_target=2,
+    n_steps_priming=cfg.steps_priming)
+  return model
+
+
+def simple_langid(cfg: Config) -> CoughModel:
+  features = [pretrained_langid()]
+  model = SimpleClassifier(
     features,
     dropout=cfg.dropout,
     n_target=2,

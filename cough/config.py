@@ -61,7 +61,7 @@ class Config:
   dropout: float = 0.5
   # priming the classifier head first then fine-tuning the whole network
   steps_priming: int = 1000
-  lr: float = 1e-4
+  lr: float = 5e-4
   # exp: ExponentialLR
   # step: StepLR
   # cos: CosineAnnealingLR
@@ -71,8 +71,8 @@ class Config:
   lr_step: int = 100  # used for StepLR
   grad_clip: float = 0.0  # norm clipping
   epochs: int = 1000
-  patience: int = 20
-  label_noise: float = 0.1
+  patience: int = 50
+  label_noise: float = 0.15
   oversampling: bool = True
   ncpu: int = 4
   eval: bool = False
@@ -152,14 +152,24 @@ META_DATA = _meta_data()
 
 
 # get positive weight from 'final_train'
-def _pos_weight():
+def _covid_weight():
   counts = META_DATA[
     'final_train'][
     'public_train_metadata'].assessment_result.value_counts()
   return counts[0] / counts[1]
 
 
-POS_WEIGHT = _pos_weight()
+COVI_WEIGHT = _covid_weight()
+
+
+def _gender_weight():
+  counts = META_DATA[
+    'final_train'][
+    'public_train_metadata'].subject_gender.value_counts()
+  return counts.female / counts.male  # class0/class1
+
+
+GEN_WEIGHT = _gender_weight()
 
 
 # all wav files

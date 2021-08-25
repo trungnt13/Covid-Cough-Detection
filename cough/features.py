@@ -9,6 +9,7 @@ import numpy as np
 import soundfile
 import torch
 import torchaudio
+from torchaudio.functional import detect_pitch_frequency
 from speechbrain.lobes.augment import TimeDomainSpecAugment, SpecAugment
 from torch.nn import functional as F
 from speechbrain.dataio.encoder import CategoricalEncoder
@@ -165,6 +166,21 @@ class AudioRead(torch.nn.Module):
     return y, sr, meta
 
 
+class Pitch(torch.nn.Module):
+  takes = ['signal', 'sr']
+  provides = ['pitch']
+
+  def __init__(self):
+    super(Pitch, self).__init__()
+
+  def forward(self, signal, sr):
+    return detect_pitch_frequency(
+      signal, sr,
+      frame_time=10 ** (-2),
+      win_length=30,
+      freq_low=50, freq_high=4000)
+
+
 class VAD(torch.nn.Module):
   takes = ['signal']
   provides = ['vad', 'vad_y', 'energies']
@@ -221,9 +237,9 @@ class LabelEncoder(torch.nn.Module):
                pseudo_soft=False,
                pseudo_rand=False):
     super().__init__()
-    self.gender_encoder = dict(unknown=0,
-                               female=1,
-                               male=2)
+    self.gender_encoder = dict(unknown=-1,
+                               female=0,
+                               male=1)
     self.age_encoder = dict(unknown=0,
                             group_0_2=1,
                             group_3_5=2,
