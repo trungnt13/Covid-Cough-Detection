@@ -156,7 +156,7 @@ def _covid_weight():
   counts = META_DATA[
     'final_train'][
     'public_train_metadata'].assessment_result.value_counts()
-  return counts[0] / counts[1]
+  return torch.tensor(counts[0] / counts[1], dtype=torch.float)
 
 
 COVI_WEIGHT = _covid_weight()
@@ -166,10 +166,27 @@ def _gender_weight():
   counts = META_DATA[
     'final_train'][
     'public_train_metadata'].subject_gender.value_counts()
-  return counts.female / counts.male  # class0/class1
+  # class0/class1
+  return torch.tensor(counts.female / counts.male, dtype=torch.float)
 
 
 GEN_WEIGHT = _gender_weight()
+
+
+def _age_weight():
+  counts = META_DATA[
+    'final_train'][
+    'public_train_metadata'].subject_age.value_counts()
+  print(counts)
+  class0 = ['group_19_33', 'group_14_18', 'group_6_13', 'group_0_2',
+            'group_3_5']
+  class1 = ['group_34_48', 'group_49_64', 'group_65_78', 'group_79_98']
+  return torch.tensor(
+    sum(counts[i] for i in class0) / sum(counts[i] for i in class1),
+    dtype=torch.float)
+
+
+AGE_WEIGHT = _age_weight()
 
 
 # all wav files

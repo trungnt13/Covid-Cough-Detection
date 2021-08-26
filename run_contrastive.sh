@@ -17,6 +17,7 @@ MODEL=contrastive_ecapa
 TASK="contrastive"
 PREFIX="contr_cut10"
 BS=16
+NCPU=8
 
 # all arguments is defined in config.py Config
 # careful overwrite will delete everything in the exist folder
@@ -30,7 +31,7 @@ python cough/train.py \
   -lr 0.0005 \
   -epochs 10000 \
   -steps_priming 200 \
-  -ncpu 4 \
+  -ncpu $NCPU \
   -pseudolabel True \
   --overwrite
 
@@ -48,7 +49,7 @@ python cough/train.py \
   -lr 0.0005 \
   -epochs 1000 \
   -steps_priming 1000 \
-  -ncpu 4 \
+  -ncpu $NCPU \
   -pseudolabel True
 
 # evaluating

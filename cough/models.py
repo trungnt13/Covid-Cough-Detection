@@ -19,12 +19,14 @@ from speechbrain.processing.speech_augmentation import AddNoise
 from torch import nn
 from speechbrain.nnet.pooling import StatisticsPooling
 
-from config import dev, SAMPLE_RATE, Config, SEED, WAV_FILES, CACHE_PATH
+from config import dev, SAMPLE_RATE, Config, SEED, WAV_FILES, CACHE_PATH, \
+  GEN_WEIGHT, AGE_WEIGHT
 from logging import getLogger
 
 from transformers.models.wav2vec2.modeling_wav2vec2 import \
   Wav2Vec2FeatureExtractor, Wav2Vec2Config, Wav2Vec2Model, \
   Wav2Vec2FeatureProjection, Wav2Vec2Encoder
+from torch.autograd import Function
 
 logger = getLogger('models')
 
@@ -33,6 +35,20 @@ logger = getLogger('models')
 class ModelOutput:
   outputs: Optional[torch.Tensor] = None
   losses: Optional[torch.Tensor] = None
+
+
+class GradientReverseF(Function):
+  """ Credit: https://github.com/fungtion/DANN """
+
+  @staticmethod
+  def forward(ctx, x, alpha):
+    ctx.alpha = alpha
+    return x.view_as(x)
+
+  @staticmethod
+  def backward(ctx, grad_output):
+    output = grad_output.neg() * ctx.alpha
+    return output, None
 
 
 # ===========================================================================
@@ -128,6 +144,43 @@ PretrainedModel = Union[EncoderClassifier,
                         EncoderDecoderASR,
                         SepformerSeparation,
                         SpectralMaskEnhancement]
+
+
+class Pitch2Vec(torch.nn.Module):
+
+  def __init__(self):
+    super(Pitch2Vec, self).__init__()
+    config = Wav2Vec2Config(
+      conv_dim=(32, 32, 32, 32),
+      conv_stride=(5, 4, 3, 2),
+      conv_kernel=(10, 8, 6, 4),
+      hidden_size=512,
+      feat_proj_dropout=0.1,
+      num_attention_heads=8,
+      num_hidden_layers=3)
+    self.pitch_model = torch.nn.ModuleDict(
+      dict(
+        feature=Wav2Vec2FeatureExtractor(config),
+        project=Wav2Vec2FeatureProjection(config),
+        encoder=Wav2Vec2Encoder(config),
+        final=nn.Sequential(nn.Linear(1024, 512),
+                            nn.Linear(512, 512))
+      )
+    )
+    self.stats_pooling = StatisticsPooling()
+
+  def forward(self, pitch):
+    pi = self.pitch_model.feature(pitch)
+    pi = pi.transpose(1, 2)
+    pi_h, pi = self.pitch_model.project(pi)
+    pi = self.pitch_model.encoder(pi_h,
+                                  attention_mask=None,
+                                  output_attentions=None,
+                                  output_hidden_states=None,
+                                  return_dict=False)[0]
+    pi = self.stats_pooling(pi)
+    pi = self.pitch_model.final(pi)
+    return pi
 
 
 class Classifier(Sequential):
@@ -342,54 +395,52 @@ class SimpleGender(SimpleClassifier):
 
   def __init__(self, *args, **kwargs):
     features = [pretrained_xvec()]
+    if 'dropout' in kwargs:
+      dropout = kwargs.pop('dropout')
+    else:
+      dropout = 0.3
+    emb_dim = 512
     super(SimpleGender, self).__init__(features=features,
-                                       classifier_shape=(5, 1, 1024),
+                                       n_layers=1,
+                                       n_hidden=1024,
+                                       n_target=1,
+                                       dropout=0.,
+                                       classifier_shape=(5, 1, emb_dim),
                                        *args, **kwargs)
-    config = Wav2Vec2Config(
-      conv_dim=(32, 32, 32, 32),
-      conv_stride=(5, 4, 3, 2),
-      conv_kernel=(10, 8, 6, 4),
-      hidden_size=512,
-      feat_proj_dropout=0.1,
-      num_attention_heads=8,
-      num_hidden_layers=3)
-    self.pitch_model = torch.nn.ModuleDict(
-      dict(
-        feature=Wav2Vec2FeatureExtractor(config),
-        project=Wav2Vec2FeatureProjection(config),
-        encoder=Wav2Vec2Encoder(config),
-        final=nn.Sequential(nn.Linear(1024, 512),
-                            nn.Linear(512, 512))
-      )
-    )
+    self.age_classifier = Classifier(
+      (5, 1, emb_dim),
+      dropout=0,
+      lin_blocks=1,
+      lin_neurons=1024,
+      out_neurons=1)
+    if torch.cuda.is_available():
+      self.age_classifier.cuda()
+
+    self.pitch2vec = Pitch2Vec()
+
+    if dropout > 0.:
+      self.dropout = nn.Dropout(dropout)
+    else:
+      self.dropout = None
 
   def forward(self, batch: PaddedBatch, return_feat: bool = False):
     # wavs model
-    wavs = batch.signal.data
-    wavs_lengths = batch.signal.lengths
-    wavs = self.augment(wavs, wavs_lengths)
-    emb = self.encode(wavs, wavs_lengths)
+    # wavs = batch.signal.data
+    # wavs_lengths = batch.signal.lengths
+    # wavs = self.augment(wavs, wavs_lengths)
+    # emb = self.encode(wavs, wavs_lengths)
 
     # pitch model
-    pitch = batch.pitch.data
-
-    pi = self.pitch_model.feature(pitch)
-    pi = pi.transpose(1, 2)
-    pi_h, pi = self.pitch_model.project(pi)
-    pi = self.pitch_model.encoder(pi_h,
-                                  attention_mask=None,
-                                  output_attentions=None,
-                                  output_hidden_states=None,
-                                  return_dict=False)[0]
-    pi = self.stats_pooling(pi)
-    pi = self.pitch_model.final(pi)
+    pi = self.pitch2vec(batch.pitch.data)
 
     # final model
-    X = torch.cat([emb, pi], -1)
-    y = self.classifier(X).squeeze(1)
-    if y.shape[-1] == 1:
-      y = y.squeeze(-1)
-    return y
+    # X = torch.cat([emb, pi], -1)
+    X = pi
+    if self.dropout is not None:
+      X = self.dropout(X)
+    gen = self.classifier(X).squeeze(1).squeeze(1)
+    age = self.age_classifier(X).squeeze(1).squeeze(1)
+    return age, gen
 
 
 # ===========================================================================
@@ -517,49 +568,49 @@ class DomainBackprop(SimpleClassifier):
   """ Gamin et al. Unsupervised Domain Adaptation by Backpropagation. 2019 """
 
   def __init__(self,
-               age_coef=0.05,
-               gen_coef=0.05,
+               coef=0.1,
                decay_rate=0.98,
                step_size=100,
-               min_coef=1e-10,
+               min_coef=1e-8,
                *args,
                **kwargs):
     super().__init__(*args, **kwargs)
-    self.age_classifier = Classifier(
-      input_shape=self._input_shape,
-      dropout=self.dropout,
-      lin_blocks=self.n_layers,
-      lin_neurons=self.n_hidden,
-      out_neurons=10)
     self.gender_classifier = Classifier(
       input_shape=self._input_shape,
       dropout=self.dropout,
       lin_blocks=self.n_layers,
       lin_neurons=self.n_hidden,
-      out_neurons=3)
-    self.fn_loss = nn.CrossEntropyLoss()
-    self.age_coef = age_coef
-    self.gen_coef = gen_coef
+      out_neurons=1)
+    self.age_classifier = Classifier(
+      input_shape=self._input_shape,
+      dropout=self.dropout,
+      lin_blocks=self.n_layers,
+      lin_neurons=self.n_hidden,
+      out_neurons=1)
+    self.gen_loss = nn.BCEWithLogitsLoss(pos_weight=GEN_WEIGHT)
+    self.age_loss = nn.BCEWithLogitsLoss(pos_weight=AGE_WEIGHT)
+    self.coef = coef
     self.decay_rate = float(decay_rate)
     self.step_size = step_size
     self.n_steps = 0
     self.min_coef = min_coef
 
   def forward(self, batch: PaddedBatch):
-    y, X = super(DomainBackprop, self).forward(batch, return_feat=True)
+    y, emb = super(DomainBackprop, self).forward(batch, return_feat=True)
     if self.training:
-      age = self.age_classifier(X).squeeze(1)
-      gen = self.gender_classifier(X).squeeze(1)
-      age_true = batch.age.data
-      gen_true = batch.gender.data
-      # maximizing the loss here
       decay_rate = self.decay_rate ** int(self.n_steps / self.step_size)
+      coef = max(decay_rate * self.coef, self.min_coef)
+      revs_emb = GradientReverseF.apply(emb, coef)
+
+      gen = self.gender_classifier(revs_emb).squeeze(1).squeeze(1)
+      gen_true = batch.gender.data.float()
+
+      age = self.age_classifier(revs_emb).squeeze(1).squeeze(1)
+      age_true = batch.age.data.float()
+
       self.n_steps += 1
-      losses: torch.Tensor = -(
-          max(decay_rate * self.age_coef, self.min_coef) *
-          self.fn_loss(age, age_true) +
-          max(decay_rate * self.gen_coef, self.min_coef) *
-          self.fn_loss(gen, gen_true))
+
+      losses = self.gen_loss(gen, gen_true) + self.age_loss(age, age_true)
       return ModelOutput(outputs=y, losses=losses)
     return y
 
@@ -580,7 +631,6 @@ def simple_xvec(cfg: Config) -> CoughModel:
 def simple_gender(cfg: Config) -> CoughModel:
   model = SimpleGender(
     dropout=cfg.dropout,
-    n_target=2,
     n_steps_priming=cfg.steps_priming)
   return model
 
@@ -667,18 +717,11 @@ def transformer_chn(cfg: Config) -> CoughModel:
 
 def domain_xvec(cfg: Config) -> CoughModel:
   features = [pretrained_xvec()]
-  age = 0.05
-  gen = 0.05
-  args = [i for i in cfg.model_args.split(',') if len(i) > 0]
-  if len(args) == 1:
-    age = float(args[0])
-    gen = float(args[0])
-  elif len(args) > 1:
-    age = float(args[0])
-    gen = float(args[1])
+  coef = 0.1
+  if len(cfg.model_args) > 0:
+    coef = float(cfg.model_args)
   model = DomainBackprop(
-    age_coef=age,
-    gen_coef=gen,
+    coef=coef,
     step_size=int(100 / (cfg.bs / 16)),
     features=features,
     dropout=cfg.dropout,

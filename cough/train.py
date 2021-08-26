@@ -15,7 +15,6 @@ VAD:
 - https://kaldi-asr.org/doc/voice-activity-detection_8cc_source.html
 - https://github.com/pytorch/audio/blob/master/examples/interactive_asr/vad.py#L38
 """
-import dataclasses
 import json
 import argparse
 import glob
@@ -30,8 +29,9 @@ from typing import Tuple
 
 import pytorch_lightning as pl
 import torch.nn
+from six import string_types
 from sklearn.metrics import auc as auc_score, roc_curve, confusion_matrix, \
-  f1_score
+  f1_score, accuracy_score
 from speechbrain.dataio.dataloader import SaveableDataLoader
 from speechbrain.dataio.dataset import DynamicItemDataset
 from speechbrain.dataio.sampler import ReproducibleWeightedRandomSampler, \
@@ -145,9 +145,9 @@ def to_loader(ds: DynamicItemDataset,
   if is_training:
     if CFG.oversampling:
       if CFG.task == 'gender':
-        key = 'subject_gender'
+        keys = ['subject_gender', 'subject_age']
       elif CFG.task == 'covid':
-        key = 'assessment_result'
+        keys = ['assessment_result']
       else:
         raise NotImplementedError(f'No support for task={CFG.task}.')
       # oversampling with replacement
@@ -156,10 +156,12 @@ def to_loader(ds: DynamicItemDataset,
       for v in ds.data.values():
         meta = v['meta']
         uuid = meta['uuid']
-        weights[uuid] = meta[key]
-        counts[meta[key]] += 1
+        k = '.'.join([str(meta[i]) for i in keys])
+        weights[uuid] = k
+        counts[k] += 1
       # normalize
-      counts = {k: sum(i for i in counts.values()) / v
+      total = sum(i for i in counts.values())
+      counts = {k: total / v
                 for k, v in counts.items()}
       # weight for each example
       weights = [counts[weights[idx]] for idx in ds.data_ids]
@@ -238,18 +240,22 @@ class TrainModule(pl.LightningModule):
 
   def __init__(self,
                model: CoughModel,
-               target: str = 'result'):
+               target: Union[str, List[str]] = 'result'):
     super().__init__()
     self.model = model
-    if CFG.task == 'gender':
-      weight = GEN_WEIGHT
-    elif CFG.task == 'covid':
-      weight = COVI_WEIGHT
-    else:
-      weight = 1. / CFG.pos_weight_rescale
-    self.fn_bce = torch.nn.BCEWithLogitsLoss(
-      pos_weight=torch.tensor(CFG.pos_weight_rescale * weight))
-    self.fn_ce = torch.nn.CrossEntropyLoss()
+    if isinstance(target, string_types):
+      target = [target]
+    target2weight = dict(
+      gender=GEN_WEIGHT,
+      age=AGE_WEIGHT,
+      result=COVI_WEIGHT,
+      covid=COVI_WEIGHT
+    )
+    weights = [target2weight.get(i, torch.tensor(1. / CFG.pos_weight_rescale))
+               for i in target]
+    self.fn_bce = [
+      torch.nn.BCEWithLogitsLoss(pos_weight=CFG.pos_weight_rescale * w)
+      for w in weights]
     self.target = target
     self.label_noise = float(CFG.label_noise)
     self.lr = float(CFG.lr)
@@ -258,70 +264,94 @@ class TrainModule(pl.LightningModule):
     # in lightning, forward defines the prediction/inference actions
     y = self.model(x)
     if proba:
-      y = torch.sigmoid(y)
+      if isinstance(y, (tuple, list)):
+        y = [torch.sigmoid(i) for i in y]
+      else:
+        y = torch.sigmoid(y)
     return y
 
   def training_step(self, batch, batch_idx):
+    losses = 0.
+    extra_losses = 0.
     y_pred = self.model(batch)
-    if isinstance(y_pred, ModelOutput):
-      extra_losses = y_pred.losses
-      y_pred = y_pred.outputs
-    else:
-      extra_losses = 0.
-    y_pred = y_pred.float()
-    y_true = getattr(batch, self.target).data
-    if torch.cuda.is_available():
-      y_true.cuda()
-    if len(y_pred.shape) == 1:
-      n_target = 2
-      y_true = y_true.float()
+    if not isinstance(y_pred, (tuple, list)):
+      y_pred = [y_pred]
+    for i, (pred, target, fn_loss) in enumerate(zip(
+        y_pred, self.target, self.fn_bce)):
+      if isinstance(pred, ModelOutput):
+        extra_losses += pred.losses
+        pred = pred.outputs
+      pred = pred.float()
+      true = getattr(batch, target).data
+      if torch.cuda.is_available():
+        true.cuda()
+      true = true.float()
       if self.label_noise is not None and self.label_noise > 0:
-        z = torch.rand(y_true.shape,
-                       device=y_true.get_device()) * self.label_noise
-        y_true = y_true * (1 - z) + (1 - y_true) * z
-      loss = self.fn_bce(y_pred, y_true)
-    else:
-      n_target = y_pred.shape[-1]
-      loss = self.fn_ce(y_pred, y_true.long())
+        z = torch.rand(true.shape, device=true.get_device()) * self.label_noise
+        true = true * (1 - z) + (1 - true) * z
+      losses += fn_loss(pred, true)
     # Logging to TensorBoard by default
-    loss += extra_losses
-    self.log("train_loss", loss)
-    return loss
+    losses += extra_losses
+    self.log("train_loss", losses)
+    return losses
 
   def validation_step(self, batch, batch_idx):
-    y = self.model(batch)
-    if isinstance(y, ModelOutput):
-      y = y.outputs
-    if len(y.shape) == 1:
-      y_pred = torch.sigmoid(y).ge(0.5)
-    else:
-      y_pred = torch.argmax(y, -1)
-    y_true = getattr(batch, self.target).data.float().cuda()
-    acc = y_pred.eq(y_true).float().sum() / y_pred.shape[0]
-    return dict(acc=acc, true=y_true, pred=y_pred)
+    y_true = []
+    y_pred = []
+    pred = self.model(batch)
+    if not isinstance(pred, (tuple, list)):
+      pred = [pred]
+    for pred, target in zip(pred, self.target):
+      if isinstance(pred, ModelOutput):
+        pred = pred.outputs
+      if len(pred.shape) == 1:
+        pred = torch.sigmoid(pred).ge(0.5)
+      else:
+        pred = torch.argmax(pred, -1)
+      true = getattr(batch, target).data.float().cuda()
+      y_pred.append(pred)
+      y_true.append(true)
+    return dict(true=y_true, pred=y_pred)
 
   def validation_epoch_end(self, outputs):
-    acc = np.mean([o['acc'].cpu().numpy() for o in outputs])
-    # calculate AUC
-    true = torch.cat([o['true'] for o in outputs], 0).cpu().numpy()
-    pred = torch.cat([o['pred'] for o in outputs], 0).cpu().numpy()
-    # f1 score
-    f1 = f1_score(true, pred)
-    if np.isnan(f1) or np.isinf(f1):
-      f1 = 0.
-    # row: true_labels
-    print(f'\n\n{confusion_matrix(true, pred)}\n')
-    fpr, tpr, thresholds = roc_curve(true, pred, pos_label=1)
-    auc = auc_score(fpr, tpr)
-    if np.isnan(auc) or np.isinf(auc):
-      auc = 0
+    all_auc = []
+    all_f1 = []
+    all_acc = []
+    print('\n\n')
+    for i, target in enumerate(self.target):
+      # calculate AUC
+      true = torch.cat([o['true'][i] for o in outputs], 0).cpu().numpy()
+      pred = torch.cat([o['pred'][i] for o in outputs], 0).cpu().numpy()
+      # f1 score
+      f1 = f1_score(true, pred)
+      if np.isnan(f1) or np.isinf(f1):
+        f1 = 0.
+      # row: true_labels
+      print(f'{target}:\n{confusion_matrix(true, pred)}\n')
+      # AUC
+      fpr, tpr, thresholds = roc_curve(true, pred, pos_label=1)
+      auc = auc_score(fpr, tpr)
+      if np.isnan(auc) or np.isinf(auc):
+        auc = 0
+      # ACC
+      acc = accuracy_score(true, pred)
+      self.log(f'{target}_acc', torch.tensor(acc), prog_bar=False)
+      self.log(f'{target}_auc', torch.tensor(auc), prog_bar=False)
+      self.log(f'{target}_f1', torch.tensor(f1), prog_bar=True)
+      all_acc.append(acc)
+      all_f1.append(f1)
+      all_auc.append(auc)
+    # aggregate all scores
+    acc = np.mean(all_acc)
+    auc = np.mean(all_auc)
+    f1 = np.mean(all_f1)
     self.log('val_acc', torch.tensor(acc), prog_bar=True)
     self.log('val_auc', torch.tensor(auc), prog_bar=True)
     self.log('val_f1', torch.tensor(f1), prog_bar=True)
     # print the learning rate
     for pg in self.optimizers().param_groups:
       self.log('lr', pg.get('lr'), prog_bar=True)
-    return dict(acc=acc, auc=auc)
+    return dict(acc=acc, auc=auc, f1=f1)
 
   def configure_optimizers(self):
     optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
@@ -348,7 +378,7 @@ class TrainModule(pl.LightningModule):
 def train_covid_detector(model: CoughModel,
                          train: DynamicItemDataset,
                          valid: Optional[DynamicItemDataset] = None,
-                         target: str = 'result',
+                         target: Union[str, List[str]] = 'result',
                          monitor: str = 'val_f1'):
   path, best_path = get_model_path(model, overwrite=False, monitor=monitor)
 
@@ -511,7 +541,6 @@ def evaluate_gender_recognizer(model: torch.nn.Module):
     model=model,
     strict=False)
   # the pretrained model cannot be switch to CPU easily
-  # model.cpu()
   model.eval()
 
 
@@ -564,13 +593,14 @@ def main():
                                     end=1.0)]
   valid_ds = Partition(name='final_train', start=train_percent, end=1.0)
 
+  ## Add pitch feautres?
   ## create the dataset
   if CFG.task == 'covid':
-    outputs = ('signal', 'result', 'age', 'gender')
+    outputs = ('signal', 'pitch', 'result', 'age', 'gender')
     train = init_dataset(train_ds, random_cut=CFG.random_cut, outputs=outputs)
     valid = init_dataset(valid_ds, random_cut=-1, outputs=outputs)
   elif CFG.task == 'contrastive':
-    outputs = ('signal', 'result', 'age', 'gender')
+    outputs = ('signal', 'pitch', 'result', 'age', 'gender')
     kw = dict(partition=train_ds, random_cut=CFG.random_cut, outputs=outputs)
     train_anchor = init_dataset(only_result=1, **kw)
     train_pos = init_dataset(only_result=1, **kw)
@@ -583,7 +613,7 @@ def main():
   elif CFG.task == 'pseudolabel':
     pass
   elif CFG.task == 'gender':
-    outputs = ('signal', 'pitch', 'gender')
+    outputs = ('signal', 'pitch', 'gender', 'age')
     train = init_dataset(train_ds, random_cut=CFG.random_cut, outputs=outputs)
     valid = init_dataset(valid_ds, random_cut=-1, outputs=outputs)
   else:
@@ -639,7 +669,7 @@ def main():
                         train=[train_anchor, train_pos, train_neg],
                         valid=[valid_anchor, valid_pos, valid_neg])
     elif CFG.task == 'gender':
-      train_covid_detector(model, train, valid=valid, target='gender')
+      train_covid_detector(model, train, valid=valid, target=['age', 'gender'])
     else:
       raise NotImplementedError(
         f'No support for training mode task="{CFG.task}"')

@@ -15,6 +15,7 @@ MODEL=simple_gender
 TASK="gender"
 PREFIX="cut8"
 BS=32
+NCPU=8
 
 # all arguments is defined in config.py Config
 # careful overwrite will delete everything in the exist folder
@@ -23,13 +24,13 @@ python cough/train.py \
   -prefix $PREFIX \
   -task $TASK \
   -oversampling True \
-  -pos_weight_rescale 0.5 \
+  -pos_weight_rescale 1.0 \
   -bs $BS \
   -random_cut 8 \
   -lr 0.0005 \
   -epochs 1000 \
   -steps_priming 300 \
-  -ncpu 5 \
+  -ncpu $NCPU \
   --overwrite
 
 ## eval

@@ -11,11 +11,12 @@ export SEED=1
 export DATA_SEED=1
 
 # main training
-MODEL=simple_xvec
+MODEL=domain_xvec
 TASK="covid"
 PREFIX="cut8"
-ARGS='0.05,0.05'
+ARGS='0.1'
 BS=50
+NCPU=8
 
 # all arguments is defined in config.py Config
 # careful overwrite will delete everything in the exist folder
@@ -32,7 +33,7 @@ python cough/train.py \
   -lr 0.0005 \
   -epochs 1000 \
   -steps_priming 1000 \
-  -ncpu 4 \
+  -ncpu $NCPU \
   --overwrite
 
 # pseudolabel

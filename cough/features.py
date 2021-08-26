@@ -9,7 +9,7 @@ import numpy as np
 import soundfile
 import torch
 import torchaudio
-from torchaudio.functional import detect_pitch_frequency
+from torchaudio.functional import detect_pitch_frequency, compute_kaldi_pitch
 from speechbrain.lobes.augment import TimeDomainSpecAugment, SpecAugment
 from torch.nn import functional as F
 from speechbrain.dataio.encoder import CategoricalEncoder
@@ -174,11 +174,15 @@ class Pitch(torch.nn.Module):
     super(Pitch, self).__init__()
 
   def forward(self, signal, sr):
-    return detect_pitch_frequency(
-      signal, sr,
-      frame_time=10 ** (-2),
-      win_length=30,
-      freq_low=50, freq_high=4000)
+    return compute_kaldi_pitch(signal, sample_rate=sr,
+                               frame_length=25.0,
+                               frame_shift=10.0,
+                               min_f0=25, max_f0=800)[:, 0]
+    # return detect_pitch_frequency(
+    #   signal, sr,
+    #   frame_time=10 ** (-2),
+    #   win_length=15,
+    #   freq_low=50, freq_high=4000)
 
 
 class VAD(torch.nn.Module):
@@ -240,16 +244,16 @@ class LabelEncoder(torch.nn.Module):
     self.gender_encoder = dict(unknown=-1,
                                female=0,
                                male=1)
-    self.age_encoder = dict(unknown=0,
-                            group_0_2=1,
-                            group_3_5=2,
-                            group_6_13=3,
-                            group_14_18=4,
-                            group_19_33=5,
-                            group_34_48=6,
-                            group_49_64=7,
-                            group_65_78=8,
-                            group_79_98=9)
+    self.age_encoder = dict(unknown=-1,
+                            group_0_2=0,
+                            group_3_5=1,
+                            group_6_13=2,
+                            group_14_18=3,
+                            group_19_33=4,
+                            group_34_48=5,
+                            group_49_64=6,
+                            group_65_78=7,
+                            group_79_98=8)
     self.result_encoder = {'unknown': -1,
                            '0': 0,
                            '1': 1,
@@ -266,6 +270,10 @@ class LabelEncoder(torch.nn.Module):
   def forward(self, meta: Dict[str, Any]):
     result = self.result_encoder[meta.get('assessment_result', -1)]
     age = self.age_encoder[meta.get('subject_age', 'unknown')]
+    if 0 <= age <= 4:
+      age = 0  # young
+    elif age >= 5:
+      age = 1  # old
     gender = self.gender_encoder[meta.get('subject_gender', 'unknown')]
     if self.pseudo_labeler is not None and result < 0:
       result = self.pseudo_labeler.label(meta['uuid'])
