@@ -15,10 +15,12 @@ Arguments:
 ```shell
 export COVIPATH=/mnt/sdb1/covid_data
 export BATCH=8
-./run_pseudo_gen.sh $COVIPATH cuda:0 $BATCH 4 111
-./run_pseudo_gen.sh $COVIPATH cuda:0 $BATCH 4 222
-./run_pseudo_gen.sh $COVIPATH cuda:0 $BATCH 4 333
-./run_pseudo_gen.sh $COVIPATH cuda:0 $BATCH 4 444
+export NCPU=4
+
+./run_pseudo_gen.sh $COVIPATH cuda:0 $BATCH $NCPU 111
+./run_pseudo_gen.sh $COVIPATH cuda:0 $BATCH $NCPU 222
+./run_pseudo_gen.sh $COVIPATH cuda:0 $BATCH $NCPU 333
+./run_pseudo_gen.sh $COVIPATH cuda:0 $BATCH $NCPU 444
 ```
 
 ## Generate Pseudo-labels for Results
@@ -37,30 +39,32 @@ Arguments:
 ```shell
 export COVIPATH=/mnt/sdb1/covid_data
 export BATCH=8
-./run_pseudo_res.sh $COVIPATH cuda:0 simple_ecapa $BATCH 4 111
-./run_pseudo_res.sh $COVIPATH cuda:0 simple_ecapa $BATCH 4 222
-./run_pseudo_res.sh $COVIPATH cuda:0 simple_ecapa $BATCH 4 333
-./run_pseudo_res.sh $COVIPATH cuda:0 simple_ecapa $BATCH 4 444
+export NCPU=4
 
-./run_pseudo_res.sh $COVIPATH cuda:0 simple_xvec $BATCH 4 111
-./run_pseudo_res.sh $COVIPATH cuda:0 simple_xvec $BATCH 4 222
-./run_pseudo_res.sh $COVIPATH cuda:0 simple_xvec $BATCH 4 333
-./run_pseudo_res.sh $COVIPATH cuda:0 simple_xvec $BATCH 4 444
+./run_pseudo_res.sh $COVIPATH cuda:0 simple_ecapa $BATCH $NCPU 111
+./run_pseudo_res.sh $COVIPATH cuda:0 simple_ecapa $BATCH $NCPU 222
+./run_pseudo_res.sh $COVIPATH cuda:0 simple_ecapa $BATCH $NCPU 333
+./run_pseudo_res.sh $COVIPATH cuda:0 simple_ecapa $BATCH $NCPU 444
 
-./run_pseudo_res.sh $COVIPATH cuda:0 simple_langid $BATCH 4 111
-./run_pseudo_res.sh $COVIPATH cuda:0 simple_langid $BATCH 4 222
-./run_pseudo_res.sh $COVIPATH cuda:0 simple_langid $BATCH 4 333
-./run_pseudo_res.sh $COVIPATH cuda:0 simple_langid $BATCH 4 444
+./run_pseudo_res.sh $COVIPATH cuda:0 simple_xvec $BATCH $NCPU 111
+./run_pseudo_res.sh $COVIPATH cuda:0 simple_xvec $BATCH $NCPU 222
+./run_pseudo_res.sh $COVIPATH cuda:0 simple_xvec $BATCH $NCPU 333
+./run_pseudo_res.sh $COVIPATH cuda:0 simple_xvec $BATCH $NCPU 444
 
-./run_pseudo_res.sh $COVIPATH cuda:0 domain_xvec $BATCH 4 111
-./run_pseudo_res.sh $COVIPATH cuda:0 domain_xvec $BATCH 4 222
-./run_pseudo_res.sh $COVIPATH cuda:0 domain_xvec $BATCH 4 333
-./run_pseudo_res.sh $COVIPATH cuda:0 domain_xvec $BATCH 4 444
+./run_pseudo_res.sh $COVIPATH cuda:0 simple_langid $BATCH $NCPU 111
+./run_pseudo_res.sh $COVIPATH cuda:0 simple_langid $BATCH $NCPU 222
+./run_pseudo_res.sh $COVIPATH cuda:0 simple_langid $BATCH $NCPU 333
+./run_pseudo_res.sh $COVIPATH cuda:0 simple_langid $BATCH $NCPU 444
 
-./run_pseudo_res.sh $COVIPATH cuda:0 domain_ecapa $BATCH 4 111
-./run_pseudo_res.sh $COVIPATH cuda:0 domain_ecapa $BATCH 4 222
-./run_pseudo_res.sh $COVIPATH cuda:0 domain_ecapa $BATCH 4 333
-./run_pseudo_res.sh $COVIPATH cuda:0 domain_ecapa $BATCH 4 444
+./run_pseudo_res.sh $COVIPATH cuda:0 domain_xvec $BATCH $NCPU 111
+./run_pseudo_res.sh $COVIPATH cuda:0 domain_xvec $BATCH $NCPU 222
+./run_pseudo_res.sh $COVIPATH cuda:0 domain_xvec $BATCH $NCPU 333
+./run_pseudo_res.sh $COVIPATH cuda:0 domain_xvec $BATCH $NCPU 444
+
+./run_pseudo_res.sh $COVIPATH cuda:0 domain_ecapa $BATCH $NCPU 111
+./run_pseudo_res.sh $COVIPATH cuda:0 domain_ecapa $BATCH $NCPU 222
+./run_pseudo_res.sh $COVIPATH cuda:0 domain_ecapa $BATCH $NCPU 333
+./run_pseudo_res.sh $COVIPATH cuda:0 domain_ecapa $BATCH $NCPU 444
 ```
 
 ## Run Contrastive Training Then Fine-tuning and Evaluation
@@ -85,17 +89,16 @@ Arguments:
 export COVIPATH=/mnt/sdb1/covid_data
 export BATCH1=5
 export BATCH2=8
+export NCPU=4
 
-./run_contrastive.sh $COVIPATH cuda:0 contrastive_ecapa $BATCH1 $BATCH2 0.8 0.6 4 111
-./run_contrastive.sh $COVIPATH cuda:0 contrastive_ecapa $BATCH1 $BATCH2 0.8 0.0 4 111
+./run_contrastive.sh $COVIPATH cuda:0 contrastive_ecapa $BATCH1 $BATCH2 0.8 0.6 $NCPU 111
+./run_contrastive.sh $COVIPATH cuda:0 contrastive_ecapa $BATCH1 $BATCH2 0.8 0.0 $NCPU 111
+./run_contrastive.sh $COVIPATH cuda:0 contrastive_ecapa $BATCH1 $BATCH2 0.0 0.6 $NCPU 111
+./run_contrastive.sh $COVIPATH cuda:0 contrastive_ecapa $BATCH1 $BATCH2 0.0 0.0 $NCPU 111
 
-./run_contrastive.sh $COVIPATH cuda:0 contrastive_xvec $BATCH1 $BATCH2 0.8 0.6 4 111
-./run_contrastive.sh $COVIPATH cuda:0 contrastive_xvec $BATCH1 $BATCH2 0.8 0.0 4 111
-
-./run_contrastive.sh $COVIPATH cuda:0 contrastive_ecapa $BATCH1 $BATCH2 0.0 0.6 4 111
-./run_contrastive.sh $COVIPATH cuda:0 contrastive_ecapa $BATCH1 $BATCH2 0.0 0.0 4 111
-
-./run_contrastive.sh $COVIPATH cuda:0 contrastive_xvec $BATCH1 $BATCH2 0.0 0.6 4 111
-./run_contrastive.sh $COVIPATH cuda:0 contrastive_xvec $BATCH1 $BATCH2 0.0 0.0 4 111
+./run_contrastive.sh $COVIPATH cuda:0 contrastive_xvec $BATCH1 $BATCH2 0.8 0.6 $NCPU 111
+./run_contrastive.sh $COVIPATH cuda:0 contrastive_xvec $BATCH1 $BATCH2 0.8 0.0 $NCPU 111
+./run_contrastive.sh $COVIPATH cuda:0 contrastive_xvec $BATCH1 $BATCH2 0.0 0.6 $NCPU 111
+./run_contrastive.sh $COVIPATH cuda:0 contrastive_xvec $BATCH1 $BATCH2 0.0 0.0 $NCPU 111
 
 ```
