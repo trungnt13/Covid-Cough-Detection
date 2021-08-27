@@ -137,6 +137,7 @@ def init_dataset(
                       provides=LabelEncoder.provides)
   # DO NOT mixing for evaluation
   if CFG.mixup and is_training:
+    print(' * Enable MixUp:', partition)
     ds.add_dynamic_item(MixUp(contrastive=CFG.task == 'contrastive'),
                         takes=MixUp.takes,
                         provides=MixUp.provides)
@@ -403,8 +404,9 @@ def train_covid_detector(model: CoughModel,
       pl.callbacks.ModelCheckpoint(filename='model-{%s:.2f}' % monitor,
                                    monitor=monitor,
                                    mode='max',
-                                   save_last=True,
                                    save_top_k=20,
+                                   verbose=True),
+      pl.callbacks.ModelCheckpoint(save_last=True,
                                    verbose=True),
       pl.callbacks.EarlyStopping(monitor,
                                  mode='max',

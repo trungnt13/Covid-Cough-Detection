@@ -690,8 +690,12 @@ def simple_gender(cfg: Config) -> CoughModel:
 
 def contrastive_xvec(cfg: Config) -> ContrastiveLearner:
   features = [pretrained_xvec()]
+  coef = 0.1
+  if len(cfg.model_args) > 0:
+    coef = float(cfg.model_args)
   model = ContrastiveLearner(
-    features,
+    coef=coef,
+    features=features,
     dropout=cfg.dropout,
     n_target=2,
     n_steps_priming=cfg.steps_priming)
@@ -710,8 +714,12 @@ def simple_ecapa(cfg: Config) -> CoughModel:
 
 def contrastive_ecapa(cfg: Config) -> ContrastiveLearner:
   features = [pretrained_ecapa()]
+  coef = 0.1
+  if len(cfg.model_args) > 0:
+    coef = float(cfg.model_args)
   model = ContrastiveLearner(
-    features,
+    coef=coef,
+    features=features,
     dropout=cfg.dropout,
     n_target=2,
     n_steps_priming=cfg.steps_priming)
@@ -785,18 +793,11 @@ def domain_xvec(cfg: Config) -> CoughModel:
 
 def domain_ecapa(cfg: Config) -> CoughModel:
   features = [pretrained_ecapa()]
-  age = 0.05
-  gen = 0.05
-  args = [i for i in cfg.model_args.split(',') if len(i) > 0]
-  if len(args) == 1:
-    age = float(args[0])
-    gen = float(args[0])
-  elif len(args) > 1:
-    age = float(args[0])
-    gen = float(args[1])
+  coef = 0.1
+  if len(cfg.model_args) > 0:
+    coef = float(cfg.model_args)
   model = DomainBackprop(
-    age_coef=age,
-    gen_coef=gen,
+    coef=coef,
     step_size=int(100 / (cfg.bs / 16)),
     features=features,
     dropout=cfg.dropout,

@@ -17,9 +17,9 @@ ARGS='0.1'
 BS=50
 NCPU=8
 
-# --pseudolabel
-# --mixup
-# --oversampling
+# --pseudolabel \
+# --mixup \
+# --oversampling \
 
 # all arguments is defined in config.py Config
 # careful overwrite will delete everything in the exist folder
@@ -30,7 +30,7 @@ python cough/train.py \
   -prefix $PREFIX \
   -task $TASK \
   -bs $BS \
-  -label_noise 0.15 \
+  -label_noise 0.1 \
   -pos_weight_rescale 0.5 \
   -random_cut 8 \
   -lr 0.0008 \

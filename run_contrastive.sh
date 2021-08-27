@@ -10,12 +10,12 @@ export COVID_SR=16000
 export SEED=1
 export DATA_SEED=1
 
-BSpretrain=5
-BSfinetune=16
+BSpretrain=8
+BSfinetune=32
 
 ## Contrastive learning
 # Config
-MODEL=contrastive_ecapa
+MODEL=contrastive_xvec
 TASK="contrastive"
 PREFIX="contr_cut8"
 CUT=8

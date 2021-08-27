@@ -363,8 +363,8 @@ class MixUp(torch.nn.Module):
 
   def __init__(self,
                contrastive: bool = False,
-               a: float = 0.4,
-               b: float = 0.4):
+               a: float = 0.25,
+               b: float = 0.25):
     super(MixUp, self).__init__()
     self.contrastive = contrastive
     self.rand = np.random.RandomState(SEED)
@@ -431,13 +431,17 @@ class MixUp(torch.nn.Module):
       frame_offset=max(0, int(self.rand.rand() * (total - length)) - 1),
       num_frames=length)
     x = resampling(x, org_sr=org_sr, new_sr=new_sr)[:signal.shape[0]]
+    x = preemphasis(x, coef=0.97)
     # mixing
     alpha = float(self.rand.beta(self.a, self.b, size=()))
     signal = alpha * signal + (1 - alpha) * x
     if not self.contrastive:
-      result = alpha * result + (1 - alpha) * result
-    age = alpha * age + (1 - alpha) * age
-    gender = alpha * gender + (1 - alpha) * gender
+      result = float(np.clip(alpha * result + (1 - alpha) * result, 0., 1.))
+    age = float(np.clip(alpha * age + (1 - alpha) * age, 0., 1.))
+    gender = float(np.clip(alpha * gender + (1 - alpha) * gender, 0., 1.))
+    # normalized to [-1,1]
+    abs_max, _ = torch.max(torch.abs(signal), dim=0)
+    signal = signal / abs_max.clamp(min=1.0)
     return signal, age, gender, result
 
 

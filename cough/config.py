@@ -70,10 +70,10 @@ class Config:
   scheduler: str = 'exp'
   gamma: float = 0.98
   lr_step: int = 100  # used for StepLR
-  grad_clip: float = 0.0  # norm clipping
+  grad_clip: float = 100.0  # norm clipping
   epochs: int = 1000
-  patience: int = 50
-  label_noise: float = 0.15
+  patience: int = 40
+  label_noise: float = 0.1
   ncpu: int = 4
   # randomly cut small segment of the audio file during training
   # if > 0, the duration in seconds if each segment
