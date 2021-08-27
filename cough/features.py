@@ -7,6 +7,7 @@ from typing import Optional, Tuple, Any, Dict
 
 import librosa
 import numpy as np
+import pandas as pd
 import soundfile
 import torch
 import torchaudio
@@ -18,7 +19,7 @@ from speechbrain.pretrained import EncoderDecoderASR, EncoderClassifier, \
   SpectralMaskEnhancement
 from scipy import stats
 from config import SAMPLE_RATE, PSEUDOLABEL_PATH, SEED, write_errors, \
-  PSEUDO_AGEGEN
+  PSEUDO_AGEGEN, META_DATA, WAV_FILES, WAV_META
 
 
 def preemphasis(input: torch.tensor, coef: float = 0.97) -> torch.tensor:
@@ -38,12 +39,49 @@ def vad_threshold(frames: torch.Tensor, threshold=35.) -> torch.Tensor:
   return torch.logical_and(energies > max_energy - threshold, energies > -75)
 
 
+_RESAMPLER = dict()
+
+
+def resampling(wav, org_sr, new_sr):
+  if wav.shape[0] == 1:
+    wav = wav.squeeze(0)
+
+  if org_sr == new_sr:
+    return wav
+  if org_sr not in _RESAMPLER:
+    _RESAMPLER[org_sr] = torchaudio.transforms.Resample(orig_freq=org_sr,
+                                                        new_freq=new_sr)
+
+  wav = _RESAMPLER[org_sr](wav)
+  return wav
+
+
 def map_fraction(s, e, duration, sr, offset, frames):
   length = ((e - s) * duration * sr) / frames
   s = (duration * s * sr - offset) / frames
   e = min(1.0, s + length)
   return dict(start=s, end=e)
 
+
+_gender_encoder = dict(unknown=-1.,
+                       female=0.,
+                       male=1.)
+_age_encoder = dict(unknown=-1.,
+                    group_0_2=0.,
+                    group_3_5=1.,
+                    group_6_13=2.,
+                    group_14_18=3.,
+                    group_19_33=4.,
+                    group_34_48=5.,
+                    group_49_64=6.,
+                    group_65_78=7.,
+                    group_79_98=8.)
+_result_encoder = {'unknown': -1.,
+                   '0': 0.,
+                   '1': 1.,
+                   0: 0.,
+                   1: 1.,
+                   -1: -1.}
 
 _PSEUDO_LABELER = dict()
 
@@ -62,7 +100,7 @@ class PseudoLabeler:
   def __init__(self,
                pseudo_soft=False,
                pseudo_rand=False,
-               pseudo_threshold=0.5):
+               pseudo_threshold=0.51):
     key = (pseudo_soft, pseudo_rand, pseudo_threshold)
     if key in _PSEUDO_LABELER:
       raise ValueError('Call static method PseudoLabeler.get_labeler '
@@ -73,27 +111,30 @@ class PseudoLabeler:
     self.pseudo_labels = []
     self.pseudo_threshold = pseudo_threshold
     for f in glob.glob(f'{PSEUDOLABEL_PATH}/*'):
+      print('Loaded Pseudo Labeler:', f)
       with open(f, 'rb') as f:
-        print('Loaded Pseudo Labeler:', f)
         self.pseudo_labels.append(pickle.load(f))
     assert len(self.pseudo_labels) > 0, \
       f'No pseudo labels found at {PSEUDOLABEL_PATH}'
 
-  def label(self, uuid) -> int:
+  def label(self, uuid, result) -> float:
+    if result >= 0.:
+      return result
     ####
     if self.pseudo_rand:
       label = self.rand.choice(self.pseudo_labels, 1)
-      result = label[uuid]
+      result = float(label[uuid])
       if not self.pseudo_soft:
-        result = int(result > self.pseudo_threshold)
+        result = float(result > self.pseudo_threshold)
     ####
     else:
       if self.pseudo_soft:
-        result = np.mean([i[uuid] for i in self.pseudo_labels])
+        result = float(np.mean([i[uuid] for i in self.pseudo_labels]))
       else:
-        result = int(
-          stats.mode([i[uuid] > self.pseudo_threshold
-                      for i in self.pseudo_labels]).mode)
+        result = stats.mode([i[uuid] > self.pseudo_threshold
+                             for i in self.pseudo_labels])
+        result = result.mode
+    result = float(result)
     return result
 
 
@@ -114,8 +155,8 @@ class PseudoAgeGen:
 
     self.pseudo_labels = []
     for f in glob.glob(f'{PSEUDO_AGEGEN}/*'):
+      print('Loaded Pseudo AgeGen:', f)
       with open(f, 'rb') as f:
-        print('Loaded Pseudo AgeGen:', f)
         self.pseudo_labels.append(pickle.load(f))
     assert len(self.pseudo_labels) > 0, \
       f'No pseudo labels found at {PSEUDO_AGEGEN}'
@@ -123,13 +164,21 @@ class PseudoAgeGen:
   def label(self, uuid, age, gen) -> Tuple[float, float]:
     if any(uuid not in i for i in self.pseudo_labels):
       return age, gen
-    age_pred = np.mean([i[uuid][0] for i in self.pseudo_labels])
-    gen_pred = np.mean([i[uuid][1] for i in self.pseudo_labels])
+    # age_pred = float(
+    #   stats.mode([i[uuid][0] > 0.5 for i in self.pseudo_labels]).mode)
+    # gen_pred = float(
+    #   stats.mode([i[uuid][1] > 0.5 for i in self.pseudo_labels]).mode)
+    age_pred = float(np.mean([i[uuid][0] for i in self.pseudo_labels]))
+    gen_pred = float(np.mean([i[uuid][1] for i in self.pseudo_labels]))
     if age < 0:
       age = age_pred
     if gen < 0:
       gen = gen_pred
     return age, gen
+
+
+class PitchShift(torch.nn.Module):
+  pass
 
 
 class AudioRead(torch.nn.Module):
@@ -198,20 +247,8 @@ class AudioRead(torch.nn.Module):
           y, sr = torchaudio.load(path,
                                   frame_offset=offset,
                                   num_frames=num_frames)
-      ## load audio
-      assert y.shape[0] == 1, y.shape
-      y = y.squeeze(0)
       ## downsampling
-      if sr != self.sr:
-        if sr not in self.resampler:
-          self.resampler[sr] = torchaudio.transforms.Resample(
-            orig_freq=sr, new_freq=self.sr)
-        # some error during resampling here
-        try:
-          y = self.resampler[sr](y)
-        except Exception as e:
-          write_errors(path, str(meta), str(y.shape), str(sr), str(e))
-          raise e
+      y = resampling(y, org_sr=sr, new_sr=self.sr)
       sr = self.sr
       ## post processing
       if self.preemphasis > 0.:
@@ -295,25 +332,6 @@ class LabelEncoder(torch.nn.Module):
                pseudo_soft=False,
                pseudo_rand=False):
     super().__init__()
-    self.gender_encoder = dict(unknown=-1,
-                               female=0,
-                               male=1)
-    self.age_encoder = dict(unknown=-1,
-                            group_0_2=0,
-                            group_3_5=1,
-                            group_6_13=2,
-                            group_14_18=3,
-                            group_19_33=4,
-                            group_34_48=5,
-                            group_49_64=6,
-                            group_65_78=7,
-                            group_79_98=8)
-    self.result_encoder = {'unknown': -1,
-                           '0': 0,
-                           '1': 1,
-                           0: 0,
-                           1: 1,
-                           -1: -1}
     # use raw probability value instead of hard value
     self.pseudo_labeler = None
     self.pseudo_age_gen = None
@@ -325,18 +343,102 @@ class LabelEncoder(torch.nn.Module):
 
   def forward(self, meta: Dict[str, Any]):
     # age, gender
-    age = self.age_encoder[meta.get('subject_age', 'unknown')]
+    age = _age_encoder[meta.get('subject_age', 'unknown')]
     if 0 <= age <= 4:
-      age = 0  # young
+      age = 0.  # young
     elif age >= 5:
-      age = 1  # old
-    gender = self.gender_encoder[meta.get('subject_gender', 'unknown')]
+      age = 1.  # old
+    gender = _gender_encoder[meta.get('subject_gender', 'unknown')]
     # result
-    result = self.result_encoder[meta.get('assessment_result', -1)]
-    if self.pseudo_labeler is not None and result < 0:
-      result = self.pseudo_labeler.label(meta['uuid'])
+    result = _result_encoder[meta.get('assessment_result', -1)]
+    if self.pseudo_labeler is not None:
+      result = self.pseudo_labeler.label(meta['uuid'], result)
       age, gender = self.pseudo_age_gen.label(meta['uuid'], age, gender)
     return result, gender, age
+
+
+class MixUp(torch.nn.Module):
+  takes = ['id', 'signal', 'sr', 'result', 'age', 'gender']
+  provides = ['signal', 'age', 'gender', 'result']
+
+  def __init__(self,
+               contrastive: bool = False,
+               a: float = 0.4,
+               b: float = 0.4):
+    super(MixUp, self).__init__()
+    self.contrastive = contrastive
+    self.rand = np.random.RandomState(SEED)
+    self.a = a
+    self.b = b
+    uuid2path = {os.path.basename(i).split('.')[0]: i
+                 for i in WAV_FILES['final_train']}
+    meta: pd.DataFrame = META_DATA['final_train']['public_train_metadata']
+    wav_meta = WAV_META['final_train']
+    # 'uuid', 'subject_age', 'subject_gender', 'audio_noise_note',
+    # 'cough_intervals', 'assessment_result'
+    self.meta = dict()
+    self.res2uuid = defaultdict(list)
+    self.uuid2nframes = dict()
+    self.uuid2sr = dict()
+    self.all_uuid = []
+    for uuid, age, gen, _, _, res in meta.values:
+      path = uuid2path[uuid]
+      res = _result_encoder[res]
+      age = _age_encoder[age]
+      gen = _gender_encoder[gen]
+      dur, sr = wav_meta[path]
+      nframes = int(dur * sr)
+      if 0 <= age <= 4:
+        age = 0.  # young
+      elif age >= 5:
+        age = 1.  # old
+      self.uuid2sr[uuid] = sr
+      self.uuid2nframes[uuid] = nframes
+      self.meta[uuid] = (path, age, gen, res)
+      self.res2uuid[res].append(uuid)
+      self.all_uuid.append(uuid)
+
+  def forward(self, uuid, signal, new_sr, result, age, gender):
+    r = float(result > 0.5)
+    duration = signal.shape[0] / new_sr
+    x_uuid = uuid
+    x_duration = 0
+    loop_breaker = 0
+    max_loop = 20
+    # for contrastive learning, pick the one with the same result
+    if self.contrastive:
+      while x_uuid == uuid or x_duration < duration:
+        x_uuid = str(self.rand.choice(self.res2uuid[r], size=()))
+        x_duration = self.uuid2nframes[x_uuid] / self.uuid2sr[x_uuid]
+        loop_breaker += 1
+        if loop_breaker >= max_loop:
+          return signal, age, gender, result
+    # for covid detector
+    else:
+      while x_uuid == uuid or x_duration < duration:
+        x_uuid = str(self.rand.choice(self.all_uuid, size=()))
+        x_duration = self.uuid2nframes[x_uuid] / self.uuid2sr[x_uuid]
+        loop_breaker += 1
+        if loop_breaker >= max_loop:
+          return signal, age, gender, result
+    # other
+    x_path, x_age, x_gen, x_res = self.meta[x_uuid]
+    # load x
+    total = self.uuid2nframes[x_uuid]
+    length = int(duration * self.uuid2sr[x_uuid]) + 1
+    x, org_sr = torchaudio.load(
+      x_path,
+      frame_offset=max(0, int(self.rand.rand() * (total - length)) - 1),
+      num_frames=length)
+    x = resampling(x, org_sr=org_sr, new_sr=new_sr)[:signal.shape[0]]
+    # mixing
+    alpha = float(self.rand.beta(self.a, self.b, size=()))
+    signal = alpha * signal + (1 - alpha) * x
+    if not self.contrastive:
+      result = alpha * result + (1 - alpha) * result
+    age = alpha * age + (1 - alpha) * age
+    gender = alpha * gender + (1 - alpha) * gender
+    return signal, age, gender, result
 
 
 class AcousticFeatures(torch.nn.Module):

@@ -43,7 +43,7 @@ from tqdm import tqdm
 
 from config import META_DATA, get_json, SAVE_PATH, COVI_WEIGHT, ZIP_FILES, \
   DATA_SEED, PSEUDOLABEL_PATH, GEN_WEIGHT, PSEUDO_AGEGEN, write_errors
-from features import AudioRead, VAD, LabelEncoder, PseudoLabeler, Pitch
+from features import AudioRead, VAD, LabelEncoder, PseudoLabeler, Pitch, MixUp
 from models import *
 
 logger = getLogger(__name__)
@@ -134,6 +134,10 @@ def init_dataset(
                                    pseudo_soft=CFG.pseudosoft),
                       takes=LabelEncoder.takes,
                       provides=LabelEncoder.provides)
+  if CFG.mixup:
+    ds.add_dynamic_item(MixUp(contrastive=CFG.task == 'contrastive'),
+                        takes=MixUp.takes,
+                        provides=MixUp.provides)
   ds.set_output_keys(outputs)
   return ds
 
@@ -142,7 +146,7 @@ def to_loader(ds: DynamicItemDataset,
               num_workers: int = 0,
               is_training=True,
               drop_last=False,
-              batch_size=None):
+              batch_size=8):
   sampler = None
   if is_training:
     if CFG.oversampling:
@@ -511,22 +515,27 @@ def evaluate_covid_detector(model: torch.nn.Module):
   # model.cpu()
   model.eval()
 
-  test_key = ['final_pri_test', 'final_pub_test']
+  test_key = ['extra_train', 'final_pri_test', 'final_pub_test']
+  pseudo_labels = dict()
+  counts = 0
   with torch.no_grad():
     for key in test_key:
       if key not in ZIP_FILES:
         continue
-      test = init_dataset(Partition(name=key),
-                          random_cut=-1,
+      test = init_dataset(Partition(name=key), random_cut=-1,
                           outputs=('signal', 'id'))
       results = dict()
-      for batch in tqdm(to_loader(test,
-                                  is_training=False,
-                                  num_workers=2),
+      for batch in tqdm(to_loader(test, is_training=False, num_workers=2),
                         desc=key):
         y_proba = model(batch, proba=True).cpu().numpy()
         for k, v in zip(batch.id, y_proba):
           results[k] = v
+          # pseudo-label
+          counts += 1
+          pseudo_labels[k] = v
+      ## save to csv
+      if '_test' not in key:  # no need for training data
+        continue
       uuid_order = list(META_DATA[key].values())[0].uuid
       text = 'uuid,assessment_result\n'
       for k in uuid_order:
@@ -539,6 +548,12 @@ def evaluate_covid_detector(model: torch.nn.Module):
         f.write(csv_path, arcname=os.path.basename(csv_path))
       print('Save results to:', zip_path)
       os.remove(csv_path)
+  ## save pseudo-labeler
+  print('Check overlap:', len(pseudo_labels), counts)
+  outpath = os.path.join(PSEUDOLABEL_PATH, os.path.basename(path))
+  with open(outpath, 'wb') as f:
+    pickle.dump(pseudo_labels, f)
+  print('Save pseudo-labels to', outpath)
 
 
 def evaluate_agegen_recognizer(model: torch.nn.Module):
@@ -581,46 +596,20 @@ def evaluate_agegen_recognizer(model: torch.nn.Module):
   print('Saved age and gender labels to:', outpath)
 
 
-def pseudo_labeling(model: torch.nn.Module):
-  path, best_path = get_model_path(
-    model, overwrite=False,
-    monitor=CFG.load if len(CFG.load) > 0 else CFG.monitor)
-  if best_path is None:
-    raise RuntimeError(f'No model found at path: {path}')
-  model = TrainModule.load_from_checkpoint(
-    checkpoint_path=best_path,
-    model=model)
-  # the pretrained model cannot be switch to CPU easily
-  # model.cpu()
-
-  test_key = ['extra_train', 'final_pub_test', 'final_pri_test']
-  labels = dict()
-  n = 0
-  with torch.no_grad():
-    model.eval()
-    for key in test_key:
-      if key not in ZIP_FILES:
-        continue
-      test = init_dataset(Partition(name=key),
-                          random_cut=-1,
-                          outputs=('signal', 'id'))
-      for batch in tqdm(to_loader(test, is_training=False,
-                                  num_workers=2),
-                        desc=key):
-        y_proba = model(batch, proba=True).cpu().numpy()
-        for k, v in zip(batch.id, y_proba):
-          n += 1
-          labels[k] = v
-  outpath = os.path.join(PSEUDOLABEL_PATH, os.path.basename(path))
-  with open(outpath, 'wb') as f:
-    pickle.dump(labels, f)
-  print('Save pseudo-labels to', outpath)
-
-
 # ===========================================================================
 # Main
 # ===========================================================================
 def main():
+  # CFG.pseudolabel = True
+  # CFG.mixup = True
+  # CFG.task = 'contrastive'
+  # ds = init_dataset(Partition('final_train'),
+  #                   outputs=('signal', 'result', 'gender', 'age'))
+  # for i in tqdm(ds):
+  #   r = i['result']
+  #   g = i['gender']
+  #   a = i['age']
+  # exit()
   train_percent = 0.8
   train_ds = Partition(name='final_train', start=0.0, end=train_percent)
   if CFG.pseudolabel:
@@ -645,8 +634,6 @@ def main():
     valid_anchor = init_dataset(only_result=1, **kw)
     valid_pos = init_dataset(only_result=1, **kw)
     valid_neg = init_dataset(only_result=0, **kw)
-  elif CFG.task == 'pseudolabel':
-    pass
   elif CFG.task == 'gender':
     outputs = ('signal', 'gender', 'age')
     train = init_dataset(train_ds, random_cut=CFG.random_cut, outputs=outputs)
@@ -699,8 +686,6 @@ def main():
   else:
     if CFG.task == 'covid':
       train_covid_detector(model, train, valid=valid, target='result')
-    elif CFG.task == 'pseudolabel':
-      pseudo_labeling(model)
     elif CFG.task == 'contrastive':
       train_contrastive(model,
                         train=[train_anchor, train_pos, train_neg],
@@ -735,7 +720,9 @@ def _read_arguments():
     print(' - ', k, ':', v)
   # rescale the steps according to batch size
   CFG.steps_priming = int(CFG.steps_priming / (CFG.bs / 16))
-  if CFG.eval or CFG.task == 'pseudolabel':
+  if CFG.eval:
+    CFG.mixup = False
+    CFG.pseudolabel = False
     CFG.overwrite = False
 
 

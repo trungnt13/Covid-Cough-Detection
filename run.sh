@@ -40,20 +40,20 @@ python cough/train.py \
 
 ## pseudolabel
 
-python cough/train.py \
-  -model $MODEL \
-  -prefix $PREFIX \
-  -task pseudolabel \
-  -bs $BS
+#python cough/train.py \
+#  -model $MODEL \
+#  -prefix $PREFIX \
+#  -task pseudolabel \
+#  -bs $BS
 
 
 ## eval
 
-python cough/train.py \
-  -model $MODEL \
-  -model_args $ARGS \
-  -prefix $PREFIX \
-  -task covid \
-  -bs $BS \
-  --eval
+#python cough/train.py \
+#  -model $MODEL \
+#  -model_args $ARGS \
+#  -prefix $PREFIX \
+#  -task covid \
+#  -bs $BS \
+#  --eval
 

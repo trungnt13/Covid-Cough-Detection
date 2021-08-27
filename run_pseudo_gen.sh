@@ -35,7 +35,7 @@ python cough/train.py \
   -bs $BS \
   -random_cut 8 \
   -lr 0.0008 \
-  -epochs 1 \
+  -epochs 1000 \
   -steps_priming 300 \
   -ncpu $NCPU \
   --overwrite
