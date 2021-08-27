@@ -74,10 +74,7 @@ class Config:
   epochs: int = 1000
   patience: int = 50
   label_noise: float = 0.15
-  oversampling: bool = True
   ncpu: int = 4
-  eval: bool = False
-  overwrite: bool = False
   # randomly cut small segment of the audio file during training
   # if > 0, the duration in seconds if each segment
   random_cut: float = -1.
@@ -98,8 +95,13 @@ class Config:
   load: str = ''
   # which model selected for evaluation
   top: int = 0
+  ######################
+  eval: bool = False
+  overwrite: bool = False
+  # enable oversampling
+  oversampling: bool = False
   # enable mixup
-  mixup: bool = True
+  mixup: bool = False
   # enable using pseudolabel
   pseudolabel: bool = False
   pseudosoft: bool = False

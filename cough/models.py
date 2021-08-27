@@ -519,7 +519,13 @@ def _match(wavs, lengths, min_batch, min_len, rand):
 
 class ContrastiveLearner(SimpleClassifier):
 
-  def __init__(self, *args, **kwargs):
+  def __init__(self,
+               coef=0.1,
+               decay_rate=0.98,
+               step_size=100,
+               min_coef=1e-8,
+               *args,
+               **kwargs):
     super(ContrastiveLearner, self).__init__(
       mix_noise=True,
       snr_noise=20.,
@@ -550,11 +556,22 @@ class ContrastiveLearner(SimpleClassifier):
       out_neurons=1
     )
 
+    self.adapter = DomainAdapter(emb_shape=self._input_shape,
+                                 coef=coef,
+                                 decay_rate=decay_rate,
+                                 step_size=step_size,
+                                 min_coef=min_coef,
+                                 dropout=self.dropout,
+                                 n_layers=self.n_layers,
+                                 n_hidden=self.n_hidden)
+
   def forward(self,
               inputs,
               reduce: bool = True):
     if isinstance(inputs, PaddedBatch):
-      return super(ContrastiveLearner, self).forward(inputs)
+      y, emb = super(ContrastiveLearner, self).forward(inputs, return_feat=True)
+      da_losses = self.adapter(emb, inputs.age.data, inputs.gender.data)
+      return ModelOutput(outputs=y, losses=da_losses)
 
     anchor: PaddedBatch = inputs[0]
     positive: PaddedBatch = inputs[1]

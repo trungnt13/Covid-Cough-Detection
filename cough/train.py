@@ -82,6 +82,7 @@ class Partition:
 def init_dataset(
     partition: Union[Partition, List[Partition]],
     random_cut: float = -1,
+    is_training: bool = True,
     outputs: Sequence[str] = ('signal', 'result'),
     only_result: Optional[int] = None
 ) -> Union[DynamicItemDataset, SaveableDataLoader]:
@@ -134,7 +135,8 @@ def init_dataset(
                                    pseudo_soft=CFG.pseudosoft),
                       takes=LabelEncoder.takes,
                       provides=LabelEncoder.provides)
-  if CFG.mixup:
+  # DO NOT mixing for evaluation
+  if CFG.mixup and is_training:
     ds.add_dynamic_item(MixUp(contrastive=CFG.task == 'contrastive'),
                         takes=MixUp.takes,
                         provides=MixUp.provides)
@@ -523,6 +525,7 @@ def evaluate_covid_detector(model: torch.nn.Module):
       if key not in ZIP_FILES:
         continue
       test = init_dataset(Partition(name=key), random_cut=-1,
+                          is_training=False,
                           outputs=('signal', 'id'))
       results = dict()
       for batch in tqdm(to_loader(test, is_training=False, num_workers=2),
@@ -574,6 +577,7 @@ def evaluate_agegen_recognizer(model: torch.nn.Module):
     model.eval()
     for key in ['extra_train', 'final_pub_test', 'final_pri_test']:
       ds = init_dataset(Partition(name=key),
+                        is_training=False,
                         outputs=('signal', 'gender', 'age', 'id'))
       for batch in tqdm(to_loader(ds, num_workers=3, batch_size=CFG.bs,
                                   is_training=False),
@@ -621,23 +625,29 @@ def main():
   ## create the dataset
   if CFG.task == 'covid':
     outputs = ('signal', 'result', 'age', 'gender')
-    train = init_dataset(train_ds, random_cut=CFG.random_cut, outputs=outputs)
-    valid = init_dataset(valid_ds, random_cut=-1, outputs=outputs)
+    train = init_dataset(train_ds, is_training=True,
+                         random_cut=CFG.random_cut, outputs=outputs)
+    valid = init_dataset(valid_ds, is_training=False,
+                         random_cut=-1, outputs=outputs)
   elif CFG.task == 'contrastive':
     outputs = ('signal', 'result', 'age', 'gender')
-    kw = dict(partition=train_ds, random_cut=CFG.random_cut, outputs=outputs)
+    kw = dict(partition=train_ds, random_cut=CFG.random_cut, outputs=outputs,
+              is_training=True)
     train_anchor = init_dataset(only_result=1, **kw)
     train_pos = init_dataset(only_result=1, **kw)
     train_neg = init_dataset(only_result=0, **kw)
 
-    kw = dict(partition=valid_ds, random_cut=CFG.random_cut, outputs=outputs)
+    kw = dict(partition=valid_ds, random_cut=CFG.random_cut, outputs=outputs,
+              is_training=False)
     valid_anchor = init_dataset(only_result=1, **kw)
     valid_pos = init_dataset(only_result=1, **kw)
     valid_neg = init_dataset(only_result=0, **kw)
   elif CFG.task == 'gender':
     outputs = ('signal', 'gender', 'age')
-    train = init_dataset(train_ds, random_cut=CFG.random_cut, outputs=outputs)
-    valid = init_dataset(valid_ds, random_cut=-1, outputs=outputs)
+    train = init_dataset(train_ds, random_cut=CFG.random_cut, outputs=outputs,
+                         is_training=True)
+    valid = init_dataset(valid_ds, random_cut=-1, outputs=outputs,
+                         is_training=False)
   else:
     raise NotImplementedError(f'No support for task={CFG.task}')
 
@@ -707,7 +717,10 @@ def _read_arguments():
   for k, v in Config.__annotations__.items():
     if k in ('eval', 'overwrite'):
       continue
-    parser.add_argument(f'-{k}', type=v, default=Config.__dict__[k])
+    if v is bool:
+      parser.add_argument(f'--{k}', action='store_true')
+    else:
+      parser.add_argument(f'-{k}', type=v, default=Config.__dict__[k])
   parsed_args: argparse.Namespace = parser.parse_args()
   for k, v in parsed_args.__dict__.items():
     if hasattr(CFG, k):
