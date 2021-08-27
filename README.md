@@ -65,6 +65,8 @@ export BATCH=8
 
 ## Run Contrastive Training Then Fine-tuning and Evaluation
 
+**This block run after the first two blocks.**
+
 Arguments:
 
 * $1: Path
