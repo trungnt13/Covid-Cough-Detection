@@ -26,7 +26,9 @@ import shutil
 import zipfile
 from collections import defaultdict
 from typing import Tuple
+import traceback
 
+import numpy as np
 import pytorch_lightning as pl
 import torch.nn
 from six import string_types
@@ -40,7 +42,7 @@ from torch.optim import lr_scheduler
 from tqdm import tqdm
 
 from config import META_DATA, get_json, SAVE_PATH, COVI_WEIGHT, ZIP_FILES, \
-  DATA_SEED, PSEUDOLABEL_PATH, GEN_WEIGHT
+  DATA_SEED, PSEUDOLABEL_PATH, GEN_WEIGHT, PSEUDO_AGEGEN, write_errors
 from features import AudioRead, VAD, LabelEncoder, PseudoLabeler, Pitch
 from models import *
 
@@ -156,7 +158,7 @@ def to_loader(ds: DynamicItemDataset,
       for v in ds.data.values():
         meta = v['meta']
         uuid = meta['uuid']
-        k = '.'.join([str(meta[i]) for i in keys])
+        k = '.'.join([str(meta.get(i, 'unknown')) for i in keys])
         weights[uuid] = k
         counts[k] += 1
       # normalize
@@ -203,14 +205,14 @@ def get_model_path(model, overwrite=False, monitor='val_f1') -> Tuple[str, str]:
   print(' * Save model at path:', path)
   # higher is better
   checkpoints = glob.glob(f'{path}/**/model-*.ckpt', recursive=True)
+  pattern = f'{monitor}=\d+\.\d+'
+  checkpoints = list(filter(lambda s: len(re.findall(pattern, s)) > 0,
+                            checkpoints))
   if len(checkpoints) > 0:
     if 'loss' in monitor:
       reverse = False  # smaller better
     else:
       reverse = True  # higher better
-    pattern = f'{monitor}=\d+\.\d+'
-    checkpoints = list(filter(lambda s: len(re.findall(pattern, s)) > 0,
-                              checkpoints))
     best_path = sorted(
       checkpoints,
       key=lambda p: float(
@@ -335,9 +337,10 @@ class TrainModule(pl.LightningModule):
         auc = 0
       # ACC
       acc = accuracy_score(true, pred)
-      self.log(f'{target}_acc', torch.tensor(acc), prog_bar=False)
-      self.log(f'{target}_auc', torch.tensor(auc), prog_bar=False)
-      self.log(f'{target}_f1', torch.tensor(f1), prog_bar=True)
+      if len(self.target) > 1:
+        self.log(f'{target[:3]}_acc', torch.tensor(acc), prog_bar=False)
+        self.log(f'{target[:3]}_auc', torch.tensor(auc), prog_bar=False)
+        self.log(f'{target[:3]}_f1', torch.tensor(f1), prog_bar=True)
       all_acc.append(acc)
       all_f1.append(f1)
       all_auc.append(auc)
@@ -378,9 +381,11 @@ class TrainModule(pl.LightningModule):
 def train_covid_detector(model: CoughModel,
                          train: DynamicItemDataset,
                          valid: Optional[DynamicItemDataset] = None,
-                         target: Union[str, List[str]] = 'result',
-                         monitor: str = 'val_f1'):
-  path, best_path = get_model_path(model, overwrite=False, monitor=monitor)
+                         target: Union[str, List[str]] = 'result'):
+  monitor = CFG.monitor
+  path, best_path = get_model_path(
+    model, overwrite=False,
+    monitor=CFG.load if len(CFG.load) > 0 else monitor)
 
   model = TrainModule(model, target=target)
   trainer = pl.Trainer(
@@ -392,6 +397,7 @@ def train_covid_detector(model: CoughModel,
       pl.callbacks.ModelCheckpoint(filename='model-{%s:.2f}' % monitor,
                                    monitor=monitor,
                                    mode='max',
+                                   save_last=True,
                                    save_top_k=20,
                                    verbose=True),
       pl.callbacks.EarlyStopping(monitor,
@@ -401,10 +407,10 @@ def train_covid_detector(model: CoughModel,
       TerminateOnNaN(),
     ],
     max_epochs=CFG.epochs,
-    val_check_interval=int(200 / (CFG.bs / 16)),
+    val_check_interval=0.5,
     resume_from_checkpoint=best_path,
   )
-
+  # int(300 / (CFG.bs / 16))
   trainer.fit(
     model,
     train_dataloaders=to_loader(train, num_workers=CFG.ncpu),
@@ -461,6 +467,7 @@ def train_contrastive(model: CoughModel,
       pl.callbacks.ModelCheckpoint(filename='model-{val_loss:.2f}',
                                    monitor='val_loss',
                                    mode='min',
+                                   save_last=True,
                                    save_top_k=20,
                                    verbose=True),
       pl.callbacks.EarlyStopping('val_loss',
@@ -491,7 +498,9 @@ def train_contrastive(model: CoughModel,
 # For evaluation
 # ===========================================================================
 def evaluate_covid_detector(model: torch.nn.Module):
-  path, best_path = get_model_path(model, overwrite=False, monitor=CFG.monitor)
+  path, best_path = get_model_path(
+    model, overwrite=False,
+    monitor=CFG.load if len(CFG.load) > 0 else CFG.monitor)
   if best_path is None:
     raise RuntimeError(f'No model found at path: {path}')
   model = TrainModule.load_from_checkpoint(
@@ -502,7 +511,7 @@ def evaluate_covid_detector(model: torch.nn.Module):
   # model.cpu()
   model.eval()
 
-  test_key = ['final_pub_test', 'final_pri_test']
+  test_key = ['final_pri_test', 'final_pub_test']
   with torch.no_grad():
     for key in test_key:
       if key not in ZIP_FILES:
@@ -513,7 +522,7 @@ def evaluate_covid_detector(model: torch.nn.Module):
       results = dict()
       for batch in tqdm(to_loader(test,
                                   is_training=False,
-                                  num_workers=0),
+                                  num_workers=2),
                         desc=key):
         y_proba = model(batch, proba=True).cpu().numpy()
         for k, v in zip(batch.id, y_proba):
@@ -532,20 +541,50 @@ def evaluate_covid_detector(model: torch.nn.Module):
       os.remove(csv_path)
 
 
-def evaluate_gender_recognizer(model: torch.nn.Module):
-  path, best_path = get_model_path(model, overwrite=False, monitor=CFG.monitor)
+def evaluate_agegen_recognizer(model: torch.nn.Module):
+  path, best_path = get_model_path(
+    model, overwrite=False,
+    monitor=CFG.load if len(CFG.load) > 0 else CFG.monitor)
   if best_path is None:
     raise RuntimeError(f'No model found at path: {path}')
   model = TrainModule.load_from_checkpoint(
     checkpoint_path=best_path,
     model=model,
     strict=False)
-  # the pretrained model cannot be switch to CPU easily
-  model.eval()
+
+  # generate pseudo-label
+  results = dict()
+  count = 0
+  with torch.no_grad():
+    model.eval()
+    for key in ['extra_train', 'final_pub_test', 'final_pri_test']:
+      ds = init_dataset(Partition(name=key),
+                        outputs=('signal', 'gender', 'age', 'id'))
+      for batch in tqdm(to_loader(ds, num_workers=3, batch_size=CFG.bs,
+                                  is_training=False),
+                        desc=key):
+        age_pred, gen_pred = model(batch, proba=True)
+        age_true, gen_true = batch.age.data, batch.gender.data
+        for uuid, ap, at, gp, gt in zip(batch.id,
+                                        age_pred, age_true,
+                                        gen_pred, gen_true):
+          count += 1
+          ap = ap.cpu().numpy().tolist()
+          at = at.numpy().tolist()
+          gp = gp.cpu().numpy().tolist()
+          gt = gt.numpy().tolist()
+          results[uuid] = (at if at >= 0 else ap, gt if gt >= 0 else gp)
+  print('Check overlap uuid:', len(results), count)
+  outpath = os.path.join(PSEUDO_AGEGEN, os.path.basename(path))
+  with open(outpath, 'wb') as f:
+    pickle.dump(results, f)
+  print('Saved age and gender labels to:', outpath)
 
 
 def pseudo_labeling(model: torch.nn.Module):
-  path, best_path = get_model_path(model, overwrite=False, monitor=CFG.monitor)
+  path, best_path = get_model_path(
+    model, overwrite=False,
+    monitor=CFG.load if len(CFG.load) > 0 else CFG.monitor)
   if best_path is None:
     raise RuntimeError(f'No model found at path: {path}')
   model = TrainModule.load_from_checkpoint(
@@ -553,13 +592,12 @@ def pseudo_labeling(model: torch.nn.Module):
     model=model)
   # the pretrained model cannot be switch to CPU easily
   # model.cpu()
-  model.eval()
 
-  test_key = ['final_train', 'extra_train',
-              'final_pub_test', 'final_pri_test']
+  test_key = ['extra_train', 'final_pub_test', 'final_pri_test']
   labels = dict()
   n = 0
   with torch.no_grad():
+    model.eval()
     for key in test_key:
       if key not in ZIP_FILES:
         continue
@@ -567,7 +605,7 @@ def pseudo_labeling(model: torch.nn.Module):
                           random_cut=-1,
                           outputs=('signal', 'id'))
       for batch in tqdm(to_loader(test, is_training=False,
-                                  num_workers=0),
+                                  num_workers=2),
                         desc=key):
         y_proba = model(batch, proba=True).cpu().numpy()
         for k, v in zip(batch.id, y_proba):
@@ -583,8 +621,6 @@ def pseudo_labeling(model: torch.nn.Module):
 # Main
 # ===========================================================================
 def main():
-  # print(pretrained_sepformer().modules)
-  # exit()
   train_percent = 0.8
   train_ds = Partition(name='final_train', start=0.0, end=train_percent)
   if CFG.pseudolabel:
@@ -593,14 +629,13 @@ def main():
                                     end=1.0)]
   valid_ds = Partition(name='final_train', start=train_percent, end=1.0)
 
-  ## Add pitch feautres?
   ## create the dataset
   if CFG.task == 'covid':
-    outputs = ('signal', 'pitch', 'result', 'age', 'gender')
+    outputs = ('signal', 'result', 'age', 'gender')
     train = init_dataset(train_ds, random_cut=CFG.random_cut, outputs=outputs)
     valid = init_dataset(valid_ds, random_cut=-1, outputs=outputs)
   elif CFG.task == 'contrastive':
-    outputs = ('signal', 'pitch', 'result', 'age', 'gender')
+    outputs = ('signal', 'result', 'age', 'gender')
     kw = dict(partition=train_ds, random_cut=CFG.random_cut, outputs=outputs)
     train_anchor = init_dataset(only_result=1, **kw)
     train_pos = init_dataset(only_result=1, **kw)
@@ -613,7 +648,7 @@ def main():
   elif CFG.task == 'pseudolabel':
     pass
   elif CFG.task == 'gender':
-    outputs = ('signal', 'pitch', 'gender', 'age')
+    outputs = ('signal', 'gender', 'age')
     train = init_dataset(train_ds, random_cut=CFG.random_cut, outputs=outputs)
     valid = init_dataset(valid_ds, random_cut=-1, outputs=outputs)
   else:
@@ -643,7 +678,9 @@ def main():
 
   ## save the config
   # only overwrite here
-  path, _ = get_model_path(model, overwrite=True)
+  path, _ = get_model_path(
+    model, overwrite=True,
+    monitor=CFG.load if len(CFG.load) > 0 else CFG.monitor)
   cfg_path = os.path.join(path, 'cfg.yaml')
   with open(cfg_path, 'w') as f:
     print('Save config to path:', cfg_path)
@@ -655,7 +692,7 @@ def main():
     if CFG.task == 'covid':
       evaluate_covid_detector(model)
     elif CFG.task == 'gender':
-      evaluate_gender_recognizer(model)
+      evaluate_agegen_recognizer(model)
     else:
       raise NotImplementedError(
         f'No support for evaluation mode task="{CFG.task}"')
@@ -704,4 +741,10 @@ def _read_arguments():
 
 if __name__ == '__main__':
   _read_arguments()
-  main()
+  try:
+    main()
+  except Exception as e:
+    p = write_errors(str(e), str(CFG))
+    with open(p, 'a') as f:
+      traceback.print_exc(file=f)
+    raise e

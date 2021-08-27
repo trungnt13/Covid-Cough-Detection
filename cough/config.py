@@ -13,6 +13,7 @@ import torch
 from joblib import Parallel, delayed
 from six import string_types
 from tqdm import tqdm
+from datetime import datetime
 
 # ===========================================================================
 # Constants
@@ -61,7 +62,7 @@ class Config:
   dropout: float = 0.5
   # priming the classifier head first then fine-tuning the whole network
   steps_priming: int = 1000
-  lr: float = 5e-4
+  lr: float = 8e-4
   # exp: ExponentialLR
   # step: StepLR
   # cos: CosineAnnealingLR
@@ -94,6 +95,8 @@ class Config:
   prefix: str = ''
   # which metric for monitoring validation performance
   monitor: str = 'val_f1'
+  # which metric is for determining loading model
+  load: str = ''
   # which model selected for evaluation
   top: int = 0
   # enable using pseudolabel
@@ -131,9 +134,12 @@ PATH = _extract_zip()
 # === cache and save path
 CACHE_PATH = os.path.join(COVID_PATH, 'cache')
 SAVE_PATH = os.path.join(COVID_PATH, 'results')
-PSEUDOLABEL_PATH = os.path.join(COVID_PATH, 'pseudolabel')
+PSEUDOLABEL_PATH = os.path.join(COVID_PATH, 'pseudo_label')
+ERROR_PATH = os.path.join(COVID_PATH, 'errors')
+PSEUDO_AGEGEN = os.path.join(COVID_PATH, 'pseudo_agegen')
 
-for path in [CACHE_PATH, SAVE_PATH, PSEUDOLABEL_PATH]:
+for path in [CACHE_PATH, SAVE_PATH, PSEUDOLABEL_PATH, ERROR_PATH,
+             PSEUDO_AGEGEN]:
   if not os.path.exists(path):
     os.makedirs(path)
 
@@ -177,7 +183,6 @@ def _age_weight():
   counts = META_DATA[
     'final_train'][
     'public_train_metadata'].subject_age.value_counts()
-  print(counts)
   class0 = ['group_19_33', 'group_14_18', 'group_6_13', 'group_0_2',
             'group_3_5']
   class1 = ['group_34_48', 'group_49_64', 'group_65_78', 'group_79_98']
@@ -236,6 +241,20 @@ def _wav_meta():
 
 # mapping: partition -> {path: (duration, sample_rate)}
 WAV_META = _wav_meta()
+
+
+# ===========================================================================
+# Helper
+# ===========================================================================
+def write_errors(*msgs) -> Path:
+  now = datetime.now()
+  now = now.strftime(r"%H_%M_%S_%d_%m") + '.txt'
+  p = os.path.join(ERROR_PATH, now)
+  with open(p, 'w') as f:
+    for m in msgs:
+      f.write(m + '\n')
+  print(f'\n\nWrite errors to: {p}\n\n')
+  return Path(p)
 
 
 # ===========================================================================

@@ -146,6 +146,66 @@ PretrainedModel = Union[EncoderClassifier,
                         SpectralMaskEnhancement]
 
 
+class DomainAdapter(torch.nn.Module):
+
+  def __init__(self,
+               emb_shape,
+               coef=0.1,
+               decay_rate=0.98,
+               step_size=100,
+               min_coef=1e-8,
+               dropout=0.3,
+               n_layers=2,
+               n_hidden=512,
+               ):
+    super().__init__()
+    if dropout is not None and dropout > 0.:
+      self.dropout = nn.Dropout(dropout)
+    else:
+      self.dropout = None
+    self.gender_classifier = Classifier(
+      input_shape=emb_shape,
+      dropout=0.,
+      lin_blocks=n_layers,
+      lin_neurons=n_hidden,
+      out_neurons=1)
+    self.age_classifier = Classifier(
+      input_shape=emb_shape,
+      dropout=0.,
+      lin_blocks=n_layers,
+      lin_neurons=n_hidden,
+      out_neurons=1)
+    self.gen_loss = nn.BCEWithLogitsLoss(pos_weight=GEN_WEIGHT)
+    self.age_loss = nn.BCEWithLogitsLoss(pos_weight=AGE_WEIGHT)
+    self.coef = coef
+    self.decay_rate = float(decay_rate)
+    self.step_size = step_size
+    self.n_steps = 0
+    self.min_coef = min_coef
+
+  def forward(self,
+              emb: torch.Tensor,
+              age_true: Optional[torch.Tensor] = None,
+              gen_true: Optional[torch.Tensor] = None):
+    if self.training and age_true is not None and gen_true is not None:
+      if self.dropout is not None:
+        emb = self.dropout(emb)
+
+      decay_rate = self.decay_rate ** int(self.n_steps / self.step_size)
+      coef = max(decay_rate * self.coef, self.min_coef)
+      revs_emb = GradientReverseF.apply(emb, coef)
+
+      gen = self.gender_classifier(revs_emb).squeeze(1).squeeze(1)
+      age = self.age_classifier(revs_emb).squeeze(1).squeeze(1)
+
+      self.n_steps += 1
+
+      losses = self.gen_loss(gen, gen_true.float()) + \
+               self.age_loss(age, age_true.float())
+      return losses
+    return 0.
+
+
 class Pitch2Vec(torch.nn.Module):
 
   def __init__(self):
@@ -394,14 +454,16 @@ class SimpleClassifier(CoughModel):
 class SimpleGender(SimpleClassifier):
 
   def __init__(self, *args, **kwargs):
-    features = [pretrained_xvec()]
+    features = [pretrained_ecapa()]
     if 'dropout' in kwargs:
       dropout = kwargs.pop('dropout')
     else:
       dropout = 0.3
-    emb_dim = 512
+    # xvec: 512
+    # ecapa: 192
+    emb_dim = 192
     super(SimpleGender, self).__init__(features=features,
-                                       n_layers=1,
+                                       n_layers=2,
                                        n_hidden=1024,
                                        n_target=1,
                                        dropout=0.,
@@ -410,14 +472,13 @@ class SimpleGender(SimpleClassifier):
     self.age_classifier = Classifier(
       (5, 1, emb_dim),
       dropout=0,
-      lin_blocks=1,
+      lin_blocks=2,
       lin_neurons=1024,
       out_neurons=1)
     if torch.cuda.is_available():
       self.age_classifier.cuda()
 
-    self.pitch2vec = Pitch2Vec()
-
+    # self.pitch2vec = Pitch2Vec()
     if dropout > 0.:
       self.dropout = nn.Dropout(dropout)
     else:
@@ -425,17 +486,17 @@ class SimpleGender(SimpleClassifier):
 
   def forward(self, batch: PaddedBatch, return_feat: bool = False):
     # wavs model
-    # wavs = batch.signal.data
-    # wavs_lengths = batch.signal.lengths
-    # wavs = self.augment(wavs, wavs_lengths)
-    # emb = self.encode(wavs, wavs_lengths)
+    wavs = batch.signal.data
+    wavs_lengths = batch.signal.lengths
+    wavs = self.augment(wavs, wavs_lengths)
+    emb = self.encode(wavs, wavs_lengths)
 
     # pitch model
-    pi = self.pitch2vec(batch.pitch.data)
+    # pi = self.pitch2vec(batch.pitch.data)
 
     # final model
     # X = torch.cat([emb, pi], -1)
-    X = pi
+    X = emb
     if self.dropout is not None:
       X = self.dropout(X)
     gen = self.classifier(X).squeeze(1).squeeze(1)
@@ -469,7 +530,7 @@ class ContrastiveLearner(SimpleClassifier):
       drop_freq_count_low=2,
       drop_freq_count_high=8,
       drop_chunk_count_low=2,
-      drop_chunk_count_high=6,
+      drop_chunk_count_high=8,
       drop_chunk_length_low=500,
       drop_chunk_length_high=4000,
       drop_chunk_noise_factor=0.,
@@ -485,7 +546,7 @@ class ContrastiveLearner(SimpleClassifier):
       input_shape=shape,
       dropout=self.dropout,
       lin_blocks=1,
-      lin_neurons=2048,
+      lin_neurons=3000,
       out_neurons=1
     )
 
@@ -575,44 +636,19 @@ class DomainBackprop(SimpleClassifier):
                *args,
                **kwargs):
     super().__init__(*args, **kwargs)
-    self.gender_classifier = Classifier(
-      input_shape=self._input_shape,
-      dropout=self.dropout,
-      lin_blocks=self.n_layers,
-      lin_neurons=self.n_hidden,
-      out_neurons=1)
-    self.age_classifier = Classifier(
-      input_shape=self._input_shape,
-      dropout=self.dropout,
-      lin_blocks=self.n_layers,
-      lin_neurons=self.n_hidden,
-      out_neurons=1)
-    self.gen_loss = nn.BCEWithLogitsLoss(pos_weight=GEN_WEIGHT)
-    self.age_loss = nn.BCEWithLogitsLoss(pos_weight=AGE_WEIGHT)
-    self.coef = coef
-    self.decay_rate = float(decay_rate)
-    self.step_size = step_size
-    self.n_steps = 0
-    self.min_coef = min_coef
+    self.adapter = DomainAdapter(emb_shape=self._input_shape,
+                                 coef=coef,
+                                 decay_rate=decay_rate,
+                                 step_size=step_size,
+                                 min_coef=min_coef,
+                                 dropout=self.dropout,
+                                 n_layers=self.n_layers,
+                                 n_hidden=self.n_hidden)
 
   def forward(self, batch: PaddedBatch):
     y, emb = super(DomainBackprop, self).forward(batch, return_feat=True)
-    if self.training:
-      decay_rate = self.decay_rate ** int(self.n_steps / self.step_size)
-      coef = max(decay_rate * self.coef, self.min_coef)
-      revs_emb = GradientReverseF.apply(emb, coef)
-
-      gen = self.gender_classifier(revs_emb).squeeze(1).squeeze(1)
-      gen_true = batch.gender.data.float()
-
-      age = self.age_classifier(revs_emb).squeeze(1).squeeze(1)
-      age_true = batch.age.data.float()
-
-      self.n_steps += 1
-
-      losses = self.gen_loss(gen, gen_true) + self.age_loss(age, age_true)
-      return ModelOutput(outputs=y, losses=losses)
-    return y
+    da_losses = self.adapter(emb, batch.age.data, batch.gender.data)
+    return ModelOutput(outputs=y, losses=da_losses)
 
 
 # ===========================================================================

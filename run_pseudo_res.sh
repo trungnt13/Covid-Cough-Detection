@@ -11,34 +11,37 @@ export SEED=1
 export DATA_SEED=1
 
 # main training
-MODEL=simple_gender
-TASK="gender"
+TASK="covid"
 PREFIX="cut8"
-BS=32
+BS=50
 NCPU=8
+
+MODEL=simple_ecapa
 
 # all arguments is defined in config.py Config
 # careful overwrite will delete everything in the exist folder
+
 python cough/train.py \
   -model $MODEL \
+  -model_args $ARGS \
   -prefix $PREFIX \
   -task $TASK \
   -oversampling True \
-  -pos_weight_rescale 1.0 \
   -bs $BS \
+  -label_noise 0.15 \
+  -pos_weight_rescale 0.5 \
   -random_cut 8 \
-  -lr 0.0005 \
+  -lr 0.0008 \
   -epochs 1000 \
-  -steps_priming 300 \
+  -steps_priming 1000 \
   -ncpu $NCPU \
+  -pseudolabel True \
   --overwrite
 
-## eval
-#python cough/train.py \
-#  -model $MODEL \
-#  -model_args $ARGS \
-#  -prefix $PREFIX \
-#  -task covid \
-#  -bs $BS \
-#  --eval
+## pseudolabel
 
+python cough/train.py \
+  -model $MODEL \
+  -prefix $PREFIX \
+  -task pseudolabel \
+  -bs $BS

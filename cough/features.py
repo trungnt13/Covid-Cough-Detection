@@ -1,4 +1,5 @@
 import glob
+import os
 import pickle
 from collections import defaultdict
 from random import random
@@ -16,7 +17,8 @@ from speechbrain.dataio.encoder import CategoricalEncoder
 from speechbrain.pretrained import EncoderDecoderASR, EncoderClassifier, \
   SpectralMaskEnhancement
 from scipy import stats
-from config import SAMPLE_RATE, PSEUDOLABEL_PATH, SEED
+from config import SAMPLE_RATE, PSEUDOLABEL_PATH, SEED, write_errors, \
+  PSEUDO_AGEGEN
 
 
 def preemphasis(input: torch.tensor, coef: float = 0.97) -> torch.tensor:
@@ -72,6 +74,7 @@ class PseudoLabeler:
     self.pseudo_threshold = pseudo_threshold
     for f in glob.glob(f'{PSEUDOLABEL_PATH}/*'):
       with open(f, 'rb') as f:
+        print('Loaded Pseudo Labeler:', f)
         self.pseudo_labels.append(pickle.load(f))
     assert len(self.pseudo_labels) > 0, \
       f'No pseudo labels found at {PSEUDOLABEL_PATH}'
@@ -94,16 +97,53 @@ class PseudoLabeler:
     return result
 
 
+class PseudoAgeGen:
+
+  @staticmethod
+  def get_labeler():
+    key = 'age-gen'
+    if key not in _PSEUDO_LABELER:
+      obj = PseudoAgeGen()
+      _PSEUDO_LABELER[key] = obj
+    return _PSEUDO_LABELER[key]
+
+  def __init__(self):
+    if 'age-gen' in _PSEUDO_LABELER:
+      raise RuntimeError('call get_labeler for singleton')
+    _PSEUDO_LABELER['age-gen'] = self
+
+    self.pseudo_labels = []
+    for f in glob.glob(f'{PSEUDO_AGEGEN}/*'):
+      with open(f, 'rb') as f:
+        print('Loaded Pseudo AgeGen:', f)
+        self.pseudo_labels.append(pickle.load(f))
+    assert len(self.pseudo_labels) > 0, \
+      f'No pseudo labels found at {PSEUDO_AGEGEN}'
+
+  def label(self, uuid, age, gen) -> Tuple[float, float]:
+    if any(uuid not in i for i in self.pseudo_labels):
+      return age, gen
+    age_pred = np.mean([i[uuid][0] for i in self.pseudo_labels])
+    gen_pred = np.mean([i[uuid][1] for i in self.pseudo_labels])
+    if age < 0:
+      age = age_pred
+    if gen < 0:
+      gen = gen_pred
+    return age, gen
+
+
 class AudioRead(torch.nn.Module):
   takes = ['path', 'meta']
   provides = ['signal', 'sr', 'meta']
 
   def __init__(self,
                random_cut: Optional[float] = 3.0,
+               min_cut: float = 0.5,
                preemphasis: Optional[float] = 0.97,
                seed: int = 1):
     super(AudioRead, self).__init__()
     self.random_cut = random_cut
+    self.min_cut = float(min_cut)
     self.preemphasis = preemphasis
     self.rand = np.random.RandomState(seed=seed)
     self.sr = int(SAMPLE_RATE)
@@ -121,11 +161,23 @@ class AudioRead(torch.nn.Module):
         cough = [dict(start=e['start'] / duration, end=e['end'] / duration,
                       labels=e['labels'])
                  for e in cough]
+      ## load normally
+      if duration < 1.0 or self.random_cut <= 0:
+        y, sr = torchaudio.load(path)
       ## random cut utterance
-      if self.random_cut > 0:
+      else:
         num_frames = int(self.random_cut * sr)
         if isinstance(cough, list) and len(cough) > 0:
-          event = self.rand.choice(cough, 1)[0]
+          # random pick an event
+          loop_breaker = 0
+          while True:
+            event = self.rand.choice(cough, 1)[0]
+            if abs(duration - event['start']) >= self.min_cut:
+              break
+            loop_breaker += 1
+            if loop_breaker >= 10:
+              break
+          # cut the audio
           start = int(event['start'] * duration * sr)
           end = int(np.ceil(event['end'] * duration * sr))
           offset = max(0., (num_frames - (end - start)) / 2)
@@ -146,9 +198,6 @@ class AudioRead(torch.nn.Module):
           y, sr = torchaudio.load(path,
                                   frame_offset=offset,
                                   num_frames=num_frames)
-      ## load normally
-      else:
-        y, sr = torchaudio.load(path)
       ## load audio
       assert y.shape[0] == 1, y.shape
       y = y.squeeze(0)
@@ -157,7 +206,12 @@ class AudioRead(torch.nn.Module):
         if sr not in self.resampler:
           self.resampler[sr] = torchaudio.transforms.Resample(
             orig_freq=sr, new_freq=self.sr)
-        y = self.resampler[sr](y)
+        # some error during resampling here
+        try:
+          y = self.resampler[sr](y)
+        except Exception as e:
+          write_errors(path, str(meta), str(y.shape), str(sr), str(e))
+          raise e
       sr = self.sr
       ## post processing
       if self.preemphasis > 0.:
@@ -262,21 +316,26 @@ class LabelEncoder(torch.nn.Module):
                            -1: -1}
     # use raw probability value instead of hard value
     self.pseudo_labeler = None
+    self.pseudo_age_gen = None
     if pseudo_labeling:
+      self.pseudo_age_gen = PseudoAgeGen.get_labeler()
       self.pseudo_labeler = PseudoLabeler.get_labeler(
         pseudo_soft=pseudo_soft, pseudo_rand=pseudo_rand,
         pseudo_threshold=pseudo_threshold)
 
   def forward(self, meta: Dict[str, Any]):
-    result = self.result_encoder[meta.get('assessment_result', -1)]
+    # age, gender
     age = self.age_encoder[meta.get('subject_age', 'unknown')]
     if 0 <= age <= 4:
       age = 0  # young
     elif age >= 5:
       age = 1  # old
     gender = self.gender_encoder[meta.get('subject_gender', 'unknown')]
+    # result
+    result = self.result_encoder[meta.get('assessment_result', -1)]
     if self.pseudo_labeler is not None and result < 0:
       result = self.pseudo_labeler.label(meta['uuid'])
+      age, gender = self.pseudo_age_gen.label(meta['uuid'], age, gender)
     return result, gender, age
 
 

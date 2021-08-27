@@ -10,24 +10,27 @@ export COVID_SR=16000
 export SEED=1
 export DATA_SEED=1
 
+BSpretrain=5
+BSfinetune=16
 
 ## Contrastive learning
 # Config
 MODEL=contrastive_ecapa
 TASK="contrastive"
-PREFIX="contr_cut10"
-BS=16
+PREFIX="contr_cut8"
+CUT=8
 NCPU=8
 
 # all arguments is defined in config.py Config
 # careful overwrite will delete everything in the exist folder
+
 python cough/train.py \
   -model $MODEL \
   -prefix $PREFIX \
   -task $TASK \
-  -bs $BS \
+  -bs $BSpretrain \
   -dropout 0.5 \
-  -random_cut 10 \
+  -random_cut $CUT \
   -lr 0.0005 \
   -epochs 10000 \
   -steps_priming 200 \
@@ -36,27 +39,29 @@ python cough/train.py \
   --overwrite
 
 ## fine tuning
-BS=64
 
 python cough/train.py \
   -model $MODEL \
   -prefix $PREFIX \
   -task covid \
-  -bs $BS \
+  -bs $BSfinetune \
   -dropout 0.5 \
-  -random_cut 10 \
+  -random_cut $CUT \
   -label_noise 0.15 \
-  -lr 0.0005 \
+  -lr 0.0008 \
   -epochs 1000 \
   -steps_priming 1000 \
   -ncpu $NCPU \
-  -pseudolabel True
+  -pseudolabel True \
+  -monitor val_f1 \
+  -load val_loss
 
 # evaluating
 python cough/train.py \
   -model $MODEL \
   -prefix $PREFIX \
   -task covid \
-  -bs $BS \
+  -bs $BSfinetune \
+  -load val_f1 \
   --eval
 
