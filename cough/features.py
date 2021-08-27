@@ -354,6 +354,10 @@ class LabelEncoder(torch.nn.Module):
     if self.pseudo_labeler is not None:
       result = self.pseudo_labeler.label(meta['uuid'], result)
       age, gender = self.pseudo_age_gen.label(meta['uuid'], age, gender)
+    # make sure no error
+    result = float(np.clip(result, 0.0, 1.0))
+    gender = float(np.clip(gender, 0.0, 1.0))
+    age = float(np.clip(age, 0.0, 1.0))
     return result, gender, age
 
 

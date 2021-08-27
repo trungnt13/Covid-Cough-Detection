@@ -70,7 +70,7 @@ class Config:
   scheduler: str = 'exp'
   gamma: float = 0.98
   lr_step: int = 100  # used for StepLR
-  grad_clip: float = 100.0  # norm clipping
+  grad_clip: float = 50.0  # norm clipping
   epochs: int = 1000
   patience: int = 40
   label_noise: float = 0.1
@@ -106,6 +106,7 @@ class Config:
   pseudolabel: bool = False
   pseudosoft: bool = False
   pseudorand: bool = False
+  debug: bool = False
 
 
 # ===========================================================================

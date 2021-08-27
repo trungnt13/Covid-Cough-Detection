@@ -394,6 +394,9 @@ def train_covid_detector(model: CoughModel,
     model, overwrite=False,
     monitor=CFG.load if len(CFG.load) > 0 else monitor)
 
+  if CFG.debug:
+    torch.autograd.set_detect_anomaly(True)
+
   model = TrainModule(model, target=target)
   trainer = pl.Trainer(
     gpus=1,

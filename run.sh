@@ -38,8 +38,7 @@ python cough/train.py \
   -steps_priming 1000 \
   -ncpu $NCPU \
   --oversampling \
-  --mixup \
-  --overwrite
+  --debug --overwrite
 
 ## eval
 
