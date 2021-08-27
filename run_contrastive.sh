@@ -40,8 +40,8 @@ PREFIX="ctrs_cut8_mix$6$7"
 CUT=8
 NCPU=$8
 
-EPOCH1=1 # pretrain
-EPOCH2=3 # finetune
+EPOCH1=10000 # pretrain
+EPOCH2=1000 # finetune
 
 # all arguments is defined in config.py Config
 # careful overwrite will delete everything in the exist folder
@@ -58,7 +58,7 @@ python cough/train.py \
   -epochs $EPOCH1 \
   -steps_priming 200 \
   -ncpu $NCPU \
-  -mixup $6 \
+  -mixup $MIXpretrain \
   --pseudolabel \
   --overwrite
 
@@ -79,7 +79,7 @@ python cough/train.py \
   -ncpu $NCPU \
   -monitor val_f1 \
   -load val_loss \
-  -mixup $7 \
+  -mixup $MIXfinetune \
   --oversampling \
   --pseudolabel
 
