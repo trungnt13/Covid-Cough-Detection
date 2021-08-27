@@ -363,10 +363,12 @@ class MixUp(torch.nn.Module):
 
   def __init__(self,
                contrastive: bool = False,
+               mix_prob: float = 0.8,
                a: float = 0.25,
                b: float = 0.25):
     super(MixUp, self).__init__()
     self.contrastive = contrastive
+    self.mix_prob = mix_prob
     self.rand = np.random.RandomState(SEED)
     self.a = a
     self.b = b
@@ -399,6 +401,8 @@ class MixUp(torch.nn.Module):
       self.all_uuid.append(uuid)
 
   def forward(self, uuid, signal, new_sr, result, age, gender):
+    if self.rand.rand() >= self.mix_prob:
+      return signal, age, gender, result
     r = float(result > 0.5)
     duration = signal.shape[0] / new_sr
     x_uuid = uuid

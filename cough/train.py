@@ -415,7 +415,7 @@ def train_covid_detector(model: CoughModel,
       TerminateOnNaN(),
     ],
     max_epochs=CFG.epochs,
-    val_check_interval=0.5,
+    val_check_interval=0.8,
     resume_from_checkpoint=best_path,
   )
   # int(300 / (CFG.bs / 16))
@@ -485,7 +485,7 @@ def train_contrastive(model: CoughModel,
       TerminateOnNaN(),
     ],
     max_epochs=CFG.epochs,
-    val_check_interval=0.5,
+    val_check_interval=0.8,
     resume_from_checkpoint=best_path,
   )
 
