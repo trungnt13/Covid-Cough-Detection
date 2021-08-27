@@ -84,16 +84,16 @@ export COVIPATH=/mnt/sdb1/covid_data
 export BATCH1=5
 export BATCH2=8
 
-./run_contrastive.sh $COVIPATH cuda:0 contrastive_ecapa $BATCH1 $BATCH2 0.8 0.5 4 111
+./run_contrastive.sh $COVIPATH cuda:0 contrastive_ecapa $BATCH1 $BATCH2 0.8 0.6 4 111
 ./run_contrastive.sh $COVIPATH cuda:0 contrastive_ecapa $BATCH1 $BATCH2 0.8 0.0 4 111
 
-./run_contrastive.sh $COVIPATH cuda:0 contrastive_xvec $BATCH1 $BATCH2 0.8 0.5 4 111
+./run_contrastive.sh $COVIPATH cuda:0 contrastive_xvec $BATCH1 $BATCH2 0.8 0.6 4 111
 ./run_contrastive.sh $COVIPATH cuda:0 contrastive_xvec $BATCH1 $BATCH2 0.8 0.0 4 111
 
-./run_contrastive.sh $COVIPATH cuda:0 contrastive_ecapa $BATCH1 $BATCH2 0.0 0.5 4 111
+./run_contrastive.sh $COVIPATH cuda:0 contrastive_ecapa $BATCH1 $BATCH2 0.0 0.6 4 111
 ./run_contrastive.sh $COVIPATH cuda:0 contrastive_ecapa $BATCH1 $BATCH2 0.0 0.0 4 111
 
-./run_contrastive.sh $COVIPATH cuda:0 contrastive_xvec $BATCH1 $BATCH2 0.0 0.5 4 111
+./run_contrastive.sh $COVIPATH cuda:0 contrastive_xvec $BATCH1 $BATCH2 0.0 0.6 4 111
 ./run_contrastive.sh $COVIPATH cuda:0 contrastive_xvec $BATCH1 $BATCH2 0.0 0.0 4 111
 
 ```
