@@ -19,8 +19,6 @@ export NCPU=4
 
 ./run_pseudo_gen.sh $COVIPATH cuda:0 $BATCH $NCPU 111
 ./run_pseudo_gen.sh $COVIPATH cuda:0 $BATCH $NCPU 222
-./run_pseudo_gen.sh $COVIPATH cuda:0 $BATCH $NCPU 333
-./run_pseudo_gen.sh $COVIPATH cuda:0 $BATCH $NCPU 444
 ```
 
 ## Generate Pseudo-labels for Results
@@ -43,28 +41,18 @@ export NCPU=4
 
 ./run_pseudo_res.sh $COVIPATH cuda:0 simple_ecapa $BATCH $NCPU 111
 ./run_pseudo_res.sh $COVIPATH cuda:0 simple_ecapa $BATCH $NCPU 222
-./run_pseudo_res.sh $COVIPATH cuda:0 simple_ecapa $BATCH $NCPU 333
-./run_pseudo_res.sh $COVIPATH cuda:0 simple_ecapa $BATCH $NCPU 444
 
 ./run_pseudo_res.sh $COVIPATH cuda:0 simple_xvec $BATCH $NCPU 111
 ./run_pseudo_res.sh $COVIPATH cuda:0 simple_xvec $BATCH $NCPU 222
-./run_pseudo_res.sh $COVIPATH cuda:0 simple_xvec $BATCH $NCPU 333
-./run_pseudo_res.sh $COVIPATH cuda:0 simple_xvec $BATCH $NCPU 444
 
 ./run_pseudo_res.sh $COVIPATH cuda:0 simple_langid $BATCH $NCPU 111
 ./run_pseudo_res.sh $COVIPATH cuda:0 simple_langid $BATCH $NCPU 222
-./run_pseudo_res.sh $COVIPATH cuda:0 simple_langid $BATCH $NCPU 333
-./run_pseudo_res.sh $COVIPATH cuda:0 simple_langid $BATCH $NCPU 444
 
 ./run_pseudo_res.sh $COVIPATH cuda:0 domain_xvec $BATCH $NCPU 111
 ./run_pseudo_res.sh $COVIPATH cuda:0 domain_xvec $BATCH $NCPU 222
-./run_pseudo_res.sh $COVIPATH cuda:0 domain_xvec $BATCH $NCPU 333
-./run_pseudo_res.sh $COVIPATH cuda:0 domain_xvec $BATCH $NCPU 444
 
 ./run_pseudo_res.sh $COVIPATH cuda:0 domain_ecapa $BATCH $NCPU 111
 ./run_pseudo_res.sh $COVIPATH cuda:0 domain_ecapa $BATCH $NCPU 222
-./run_pseudo_res.sh $COVIPATH cuda:0 domain_ecapa $BATCH $NCPU 333
-./run_pseudo_res.sh $COVIPATH cuda:0 domain_ecapa $BATCH $NCPU 444
 ```
 
 ## Run Contrastive Training Then Fine-tuning and Evaluation

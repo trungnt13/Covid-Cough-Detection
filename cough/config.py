@@ -5,6 +5,7 @@ import zipfile
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Union, Dict, Any
 
 import numpy as np
 import pandas as pd
@@ -267,7 +268,8 @@ def write_errors(*msgs) -> Path:
 # ===========================================================================
 def get_json(partition: str,
              start: float = 0.0,
-             end: float = 1.0) -> Path:
+             end: float = 1.0,
+             return_data: bool = False) -> Union[Path, Dict[Any, Any]]:
   """path, gender, age, result
 
   result=-1 for test set
@@ -307,9 +309,11 @@ def get_json(partition: str,
   end = int(n * end)
   data = data[start:end]
   data = dict(data)
+  if return_data:
+    return data
   # === 4. save to JSON
   path = os.path.join(CACHE_PATH,
                       f'{partition}_{start:g}_{end:g}_{DATA_SEED:d}.json')
-  with open(path, 'w') as f:
+  with open(path, 'w', encoding='utf-8') as f:
     json.dump(data, f)
   return Path(path)

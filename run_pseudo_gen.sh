@@ -32,6 +32,7 @@ python cough/train.py \
   -prefix $PREFIX \
   -task $TASK \
   -label_noise 0.2 \
+  -dropout 0.3 \
   -pos_weight_rescale 0.6 \
   -bs $BS \
   -random_cut 8 \

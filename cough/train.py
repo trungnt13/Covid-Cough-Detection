@@ -90,20 +90,20 @@ def init_dataset(
   if isinstance(partition, Partition):
     json_path = get_json(partition.name,
                          start=partition.start, end=partition.end)
+  # multiple partition
   else:
-    json_path = [get_json(p.name, start=p.start, end=p.end)
+    json_data = [get_json(p.name, start=p.start, end=p.end, return_data=True)
                  for p in partition]
-    name = '_'.join([os.path.basename(i).split('.')[0] for i in json_path])
-    name += '.json'
+    name = '_'.join([f"{i.name}_{i.start}_{i.end}" for i in partition])
+    name += f'_{DATA_SEED}.json'
     data = dict()
-    for path in json_path:
-      with open(path, 'r') as f:
-        data.update(json.load(f))
+    for d in json_data:
+      data.update(d)
     data = [(k, v) for k, v in data.items()]
     np.random.shuffle(data)
     data = dict(data)
     json_path = os.path.join(CACHE_PATH, name)
-    with open(json_path, 'w') as f:
+    with open(json_path, 'w', encoding='utf-8') as f:
       json.dump(data, f)
   # path, meta, id
   ds = DynamicItemDataset.from_json(json_path)

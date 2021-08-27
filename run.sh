@@ -10,11 +10,11 @@ export SEED=1
 export DATA_SEED=1
 
 # main training
-MODEL=simple_xvec
+MODEL=domain_xvec
 TASK="covid"
 PREFIX="cut8"
 ARGS='0.1'
-BS=50
+BS=64
 NCPU=8
 
 # --pseudolabel \
@@ -30,8 +30,9 @@ python cough/train.py \
   -prefix $PREFIX \
   -task $TASK \
   -bs $BS \
+  -dropout 0.3 \
   -label_noise 0.1 \
-  -pos_weight_rescale 0.3 \
+  -pos_weight_rescale 0.7 \
   -random_cut 8 \
   -lr 0.0008 \
   -epochs 1000 \
@@ -50,4 +51,4 @@ python cough/train.py \
 #  -task covid \
 #  -bs $BS \
 #  --eval
-
+#

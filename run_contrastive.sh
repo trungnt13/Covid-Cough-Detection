@@ -43,6 +43,8 @@ NCPU=$8
 EPOCH1=10000 # pretrain
 EPOCH2=1000 # finetune
 
+POS_WEIGHT=0.6
+
 # all arguments is defined in config.py Config
 # careful overwrite will delete everything in the exist folder
 
@@ -52,7 +54,7 @@ python cough/train.py \
   -prefix $PREFIX \
   -task $TASK \
   -bs $BSpretrain \
-  -dropout 0.5 \
+  -dropout 0.3 \
   -random_cut $CUT \
   -lr 0.0008 \
   -epochs $EPOCH1 \
@@ -69,10 +71,10 @@ python cough/train.py \
   -prefix $PREFIX \
   -task covid \
   -bs $BSfinetune \
-  -dropout 0.5 \
+  -dropout 0.3 \
   -random_cut $CUT \
   -label_noise 0.1 \
-  -pos_weight_rescale 0.3 \
+  -pos_weight_rescale $POS_WEIGHT \
   -lr 0.0008 \
   -epochs $EPOCH2 \
   -steps_priming 1000 \
