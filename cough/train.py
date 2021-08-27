@@ -146,10 +146,11 @@ def init_dataset(
 
 
 def to_loader(ds: DynamicItemDataset,
+              batch_size: int,
               num_workers: int = 0,
-              is_training=True,
-              drop_last=False,
-              batch_size=8):
+              is_training: bool = True,
+              drop_last: bool = False):
+  assert batch_size > 0
   sampler = None
   if is_training:
     if CFG.oversampling:
@@ -422,11 +423,12 @@ def train_covid_detector(model: CoughModel,
     resume_from_checkpoint=best_path,
   )
   # int(300 / (CFG.bs / 16))
+  valid = None if valid is None else \
+    to_loader(valid, batch_size=CFG.bs // 2, num_workers=2, is_training=False)
   trainer.fit(
     model,
-    train_dataloaders=to_loader(train, num_workers=CFG.ncpu),
-    val_dataloaders=None if valid is None else
-    to_loader(valid, num_workers=2, is_training=False))
+    train_dataloaders=to_loader(train, batch_size=CFG.bs, num_workers=CFG.ncpu),
+    val_dataloaders=valid)
 
 
 # ===========================================================================
@@ -461,11 +463,11 @@ def train_contrastive(model: CoughModel,
   # no need oversampling
   CFG.oversampling = False
 
-  train = [to_loader(i, num_workers=max(1, CFG.ncpu // 2),
+  train = [to_loader(i, batch_size=CFG.bs, num_workers=max(1, CFG.ncpu // 2),
                      is_training=True, drop_last=True)
            for i in train]
-  valid = [to_loader(i, num_workers=2, is_training=False, drop_last=True,
-                     batch_size=5)
+  valid = [to_loader(i, batch_size=CFG.bs // 2, num_workers=2,
+                     is_training=False, drop_last=True)
            for i in valid]
 
   model = ContrastiveModule(model)
@@ -533,7 +535,8 @@ def evaluate_covid_detector(model: torch.nn.Module):
                           is_training=False,
                           outputs=('signal', 'id'))
       results = dict()
-      for batch in tqdm(to_loader(test, is_training=False, num_workers=2),
+      for batch in tqdm(to_loader(test, batch_size=CFG.bs,
+                                  is_training=False, num_workers=2),
                         desc=key):
         y_proba = model(batch, proba=True).cpu().numpy()
         for k, v in zip(batch.id, y_proba):
@@ -584,7 +587,7 @@ def evaluate_agegen_recognizer(model: torch.nn.Module):
       ds = init_dataset(Partition(name=key),
                         is_training=False,
                         outputs=('signal', 'gender', 'age', 'id'))
-      for batch in tqdm(to_loader(ds, num_workers=3, batch_size=CFG.bs,
+      for batch in tqdm(to_loader(ds, batch_size=CFG.bs, num_workers=CFG.ncpu,
                                   is_training=False),
                         desc=key):
         age_pred, gen_pred = model(batch, proba=True)
