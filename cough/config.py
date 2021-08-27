@@ -97,11 +97,12 @@ class Config:
   top: int = 0
   ######################
   eval: bool = False
+  save_pseudo: bool = False
   overwrite: bool = False
   # enable oversampling
   oversampling: bool = False
-  # enable mixup
-  mixup: bool = False
+  # probability of mixup
+  mixup: float = 0.0
   # enable using pseudolabel
   pseudolabel: bool = False
   pseudosoft: bool = False

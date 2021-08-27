@@ -89,7 +89,9 @@ _PSEUDO_LABELER = dict()
 class PseudoLabeler:
 
   @staticmethod
-  def get_labeler(pseudo_soft=False, pseudo_rand=False, pseudo_threshold=0.5):
+  def get_labeler(pseudo_soft=False,
+                  pseudo_rand=False,
+                  pseudo_threshold=0.5) -> 'PseudoLabeler':
     key = (pseudo_soft, pseudo_rand, pseudo_threshold)
     if key in _PSEUDO_LABELER:
       return _PSEUDO_LABELER[key]
@@ -141,7 +143,7 @@ class PseudoLabeler:
 class PseudoAgeGen:
 
   @staticmethod
-  def get_labeler():
+  def get_labeler() -> 'PseudoAgeGen':
     key = 'age-gen'
     if key not in _PSEUDO_LABELER:
       obj = PseudoAgeGen()

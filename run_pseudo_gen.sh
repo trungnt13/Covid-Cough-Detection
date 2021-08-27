@@ -23,6 +23,7 @@ TASK="gender"
 PREFIX="cut8"
 BS=$3
 NCPU=$4
+EPOCH=1000
 
 # all arguments is defined in config.py Config
 # careful overwrite will delete everything in the exist folder
@@ -30,14 +31,15 @@ python cough/train.py \
   -model $MODEL \
   -prefix $PREFIX \
   -task $TASK \
-  -oversampling True \
+  -label_noise 0.2 \
   -pos_weight_rescale 0.6 \
   -bs $BS \
   -random_cut 8 \
   -lr 0.0008 \
-  -epochs 1000 \
-  -steps_priming 300 \
+  -epochs $EPOCH \
+  -steps_priming 1000 \
   -ncpu $NCPU \
+  --oversampling \
   --overwrite
 
 ## eval
@@ -46,5 +48,5 @@ python cough/train.py \
   -prefix $PREFIX \
   -task $TASK \
   -bs $BS \
-  --eval
+  --save_pseudo --eval
 

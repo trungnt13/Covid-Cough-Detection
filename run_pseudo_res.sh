@@ -24,6 +24,7 @@ TASK="covid"
 PREFIX="cut8"
 BS=$4
 NCPU=$5
+EPOCH=1000
 
 
 # all arguments is defined in config.py Config
@@ -33,21 +34,21 @@ python cough/train.py \
   -model $MODEL \
   -prefix $PREFIX \
   -task $TASK \
-  -oversampling True \
   -bs $BS \
-  -label_noise 0.15 \
+  -label_noise 0.2 \
   -pos_weight_rescale 0.5 \
   -random_cut 8 \
   -lr 0.0008 \
-  -epochs 1 \
+  -epochs $EPOCH \
   -steps_priming 1000 \
   -ncpu $NCPU \
+  --oversampling \
   --overwrite
 
-## pseudolabel
+## pseudolabel (just call eval)
 
 python cough/train.py \
   -model $MODEL \
   -prefix $PREFIX \
   -bs $BS \
-  --eval
+  --save_pseudo --eval

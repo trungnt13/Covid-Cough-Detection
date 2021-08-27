@@ -1,5 +1,6 @@
 import dataclasses
 import os
+import time
 import warnings
 from typing import Union, Callable, List, Sequence, Optional
 
@@ -20,7 +21,7 @@ from torch import nn
 from speechbrain.nnet.pooling import StatisticsPooling
 
 from config import dev, SAMPLE_RATE, Config, SEED, WAV_FILES, CACHE_PATH, \
-  GEN_WEIGHT, AGE_WEIGHT
+  GEN_WEIGHT, AGE_WEIGHT, write_errors
 from logging import getLogger
 
 from transformers.models.wav2vec2.modeling_wav2vec2 import \
@@ -511,9 +512,15 @@ class SimpleGender(SimpleClassifier):
 def _match(wavs, lengths, min_batch, min_len, rand):
   l = wavs.shape[1]
   if l > min_len:
-    i = rand.randint(0, l - min_len - 1)
-    wavs = wavs[:min_batch, i: i + min_len]
-    lengths = lengths[:min_batch]
+    try:
+      i = rand.randint(0, max(l - min_len - 1, 1))
+      wavs = wavs[:min_batch, i: i + min_len]
+      lengths = lengths[:min_batch]
+    except Exception as e:
+      write_errors(str(wavs.shape), str(lengths.shape),
+                   str(min_batch), str(min_len))
+      time.sleep(1.0)
+      raise e
   return wavs, lengths
 
 
@@ -570,8 +577,10 @@ class ContrastiveLearner(SimpleClassifier):
               reduce: bool = True):
     if isinstance(inputs, PaddedBatch):
       y, emb = super(ContrastiveLearner, self).forward(inputs, return_feat=True)
-      da_losses = self.adapter(emb, inputs.age.data, inputs.gender.data)
-      return ModelOutput(outputs=y, losses=da_losses)
+      if self.training:
+        da_losses = self.adapter(emb, inputs.age.data, inputs.gender.data)
+        return ModelOutput(outputs=y, losses=da_losses)
+      return y
 
     anchor: PaddedBatch = inputs[0]
     positive: PaddedBatch = inputs[1]
@@ -664,8 +673,10 @@ class DomainBackprop(SimpleClassifier):
 
   def forward(self, batch: PaddedBatch):
     y, emb = super(DomainBackprop, self).forward(batch, return_feat=True)
-    da_losses = self.adapter(emb, batch.age.data, batch.gender.data)
-    return ModelOutput(outputs=y, losses=da_losses)
+    if self.training:
+      da_losses = self.adapter(emb, batch.age.data, batch.gender.data)
+      return ModelOutput(outputs=y, losses=da_losses)
+    return y
 
 
 # ===========================================================================
@@ -809,4 +820,4 @@ def domain_ecapa(cfg: Config) -> CoughModel:
 def sepformer(cfg: Config) -> CoughModel:
   features = [pretrained_sepformer()]
   print(features[0].modules)
-  exit()
+  raise NotImplementedError

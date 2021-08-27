@@ -115,7 +115,7 @@ def init_dataset(
         labeler = PseudoLabeler.get_labeler(pseudo_soft=CFG.pseudosoft,
                                             pseudo_rand=CFG.pseudorand)
       if result == 'unknown':
-        result = labeler.label(ds.data[idx]['meta']['uuid']) \
+        result = labeler.label(ds.data[idx]['meta']['uuid'], result=-1) \
           if CFG.pseudolabel else -1
       if result != only_result:
         ds.data_ids.remove(idx)
@@ -136,9 +136,10 @@ def init_dataset(
                       takes=LabelEncoder.takes,
                       provides=LabelEncoder.provides)
   # DO NOT mixing for evaluation
-  if CFG.mixup and is_training:
+  if CFG.mixup > 0. and is_training:
     print(' * Enable MixUp:', partition)
-    ds.add_dynamic_item(MixUp(contrastive=CFG.task == 'contrastive'),
+    ds.add_dynamic_item(MixUp(contrastive=CFG.task == 'contrastive',
+                              mix_prob=float(CFG.mixup)),
                         takes=MixUp.takes,
                         provides=MixUp.provides)
   ds.set_output_keys(outputs)
@@ -562,9 +563,10 @@ def evaluate_covid_detector(model: torch.nn.Module):
   ## save pseudo-labeler
   print('Check overlap:', len(pseudo_labels), counts)
   outpath = os.path.join(PSEUDOLABEL_PATH, os.path.basename(path))
-  with open(outpath, 'wb') as f:
-    pickle.dump(pseudo_labels, f)
-  print('Save pseudo-labels to', outpath)
+  if CFG.save_pseudo:
+    with open(outpath, 'wb') as f:
+      pickle.dump(pseudo_labels, f)
+    print('Save pseudo-labels to', outpath)
 
 
 def evaluate_agegen_recognizer(model: torch.nn.Module):
@@ -603,9 +605,10 @@ def evaluate_agegen_recognizer(model: torch.nn.Module):
           results[uuid] = (at if at >= 0 else ap, gt if gt >= 0 else gp)
   print('Check overlap uuid:', len(results), count)
   outpath = os.path.join(PSEUDO_AGEGEN, os.path.basename(path))
-  with open(outpath, 'wb') as f:
-    pickle.dump(results, f)
-  print('Saved age and gender labels to:', outpath)
+  if CFG.save_pseudo:
+    with open(outpath, 'wb') as f:
+      pickle.dump(results, f)
+    print('Saved age and gender labels to:', outpath)
 
 
 # ===========================================================================
