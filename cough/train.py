@@ -197,7 +197,9 @@ def to_loader(ds: DynamicItemDataset,
   )
 
 
-def get_model_path(model, overwrite=False, monitor='val_f1') -> Tuple[str, str]:
+def get_model_path(model,
+                   overwrite=False,
+                   load_key='val_f1') -> Tuple[str, str]:
   overwrite = CFG.overwrite & overwrite
   prefix = '' if len(CFG.prefix) == 0 else f'{CFG.prefix}_'
   path = os.path.join(SAVE_PATH, f'{prefix}{model.name}_{DATA_SEED}')
@@ -214,11 +216,11 @@ def get_model_path(model, overwrite=False, monitor='val_f1') -> Tuple[str, str]:
   print(' * Save model at path:', path)
   # higher is better
   checkpoints = glob.glob(f'{path}/**/model-*.ckpt', recursive=True)
-  pattern = f'{monitor}=\d+\.\d+'
+  pattern = f'{load_key}(=\d+\.\d+)?'
   checkpoints = list(filter(lambda s: len(re.findall(pattern, s)) > 0,
                             checkpoints))
   if len(checkpoints) > 0:
-    if 'loss' in monitor:
+    if 'loss' in load_key:
       reverse = False  # smaller better
     else:
       reverse = True  # higher better
@@ -394,7 +396,7 @@ def train_covid_detector(model: CoughModel,
   monitor = CFG.monitor
   path, best_path = get_model_path(
     model, overwrite=False,
-    monitor=CFG.load if len(CFG.load) > 0 else monitor)
+    load_key=CFG.load if len(CFG.load) > 0 else monitor)
 
   if CFG.debug:
     torch.autograd.set_detect_anomaly(True)
@@ -460,7 +462,7 @@ class ContrastiveModule(TrainModule):
 def train_contrastive(model: CoughModel,
                       train: List[DynamicItemDataset],
                       valid: List[DynamicItemDataset]):
-  path, best_path = get_model_path(model, overwrite=False, monitor='val_loss')
+  path, best_path = get_model_path(model, overwrite=False, load_key='val_loss')
   # no need oversampling
   CFG.oversampling = False
 
@@ -514,7 +516,7 @@ def train_contrastive(model: CoughModel,
 def evaluate_covid_detector(model: torch.nn.Module):
   path, best_path = get_model_path(
     model, overwrite=False,
-    monitor=CFG.load if len(CFG.load) > 0 else CFG.monitor)
+    load_key=CFG.load if len(CFG.load) > 0 else CFG.monitor)
   if best_path is None:
     raise RuntimeError(f'No model found at path: {path}')
   model = TrainModule.load_from_checkpoint(
@@ -572,7 +574,7 @@ def evaluate_covid_detector(model: torch.nn.Module):
 def evaluate_agegen_recognizer(model: torch.nn.Module):
   path, best_path = get_model_path(
     model, overwrite=False,
-    monitor=CFG.load if len(CFG.load) > 0 else CFG.monitor)
+    load_key=CFG.load if len(CFG.load) > 0 else CFG.monitor)
   if best_path is None:
     raise RuntimeError(f'No model found at path: {path}')
   model = TrainModule.load_from_checkpoint(
@@ -688,7 +690,7 @@ def main():
   # only overwrite here
   path, _ = get_model_path(
     model, overwrite=True,
-    monitor=CFG.load if len(CFG.load) > 0 else CFG.monitor)
+    load_key=CFG.load if len(CFG.load) > 0 else CFG.monitor)
   cfg_path = os.path.join(path, 'cfg.yaml')
   with open(cfg_path, 'w') as f:
     print('Save config to path:', cfg_path)

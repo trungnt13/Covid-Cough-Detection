@@ -32,14 +32,14 @@ python cough/train.py \
   -bs $BS \
   -dropout 0.3 \
   -label_noise 0.1 \
-  -pos_weight_rescale 0.7 \
+  -pos_weight_rescale 0.8 \
   -random_cut 8 \
   -lr 0.0008 \
   -epochs 1000 \
   -steps_priming 1000 \
   -ncpu $NCPU \
   --oversampling \
-  -mixup 0.8 \
+  -mixup 0.6 \
   --overwrite
 
 ## eval

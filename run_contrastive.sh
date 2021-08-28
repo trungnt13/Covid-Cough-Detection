@@ -7,10 +7,8 @@ echo "Device                : $2";
 echo "Model                 : $3";
 echo "Batch size (pretrain) : $4";
 echo "Batch size (finetune) : $5";
-echo "Mixup (pretrain)      : $6";
-echo "Mixup (finetune)      : $7";
-echo "NCPU                  : $8";
-echo "SEED                  : $9";
+echo "Load for finetune     : $6";
+echo "SEED                  : $7";
 echo "--------------";
 
 export COVID_PATH="$1"
@@ -21,8 +19,9 @@ fi
 export COVID_DEVICE="$2"
 export COVID_SR=16000
 export SEED=1
-export DATA_SEED="$9"
+export DATA_SEED="$7"
 
+NCPU=6
 
 ## Contrastive learning
 # Config
@@ -31,17 +30,13 @@ MODEL=$3
 BSpretrain=$4
 BSfinetune=$5
 
-MIXpretrain=$6
-MIXfinetune=$7
-
 TASK="contrastive"
 ARGS="0.1"
-PREFIX="ctrs_cut8_mix$6$7"
-CUT=8
-NCPU=$8
+CUT=15
+PREFIX="ctrs_cut$CUT_$6"
 
-EPOCH1=10000 # pretrain
-EPOCH2=1000 # finetune
+EPOCH1=2 # pretrain
+EPOCH2=3 # finetune
 
 POS_WEIGHT=0.6
 
@@ -60,7 +55,6 @@ python cough/train.py \
   -epochs $EPOCH1 \
   -steps_priming 200 \
   -ncpu $NCPU \
-  -mixup $MIXpretrain \
   --pseudolabel \
   --overwrite
 
@@ -80,8 +74,7 @@ python cough/train.py \
   -steps_priming 1000 \
   -ncpu $NCPU \
   -monitor val_f1 \
-  -load val_loss \
-  -mixup $MIXfinetune \
+  -load $6 \
   --oversampling \
   --pseudolabel
 
