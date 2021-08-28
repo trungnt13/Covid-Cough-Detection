@@ -35,8 +35,8 @@ ARGS="0.1"
 CUT=15
 PREFIX="ctrs_cut$CUT_$6"
 
-EPOCH1=2 # pretrain
-EPOCH2=3 # finetune
+EPOCH1=10000 # pretrain
+EPOCH2=1000 # finetune
 
 POS_WEIGHT=0.6
 
