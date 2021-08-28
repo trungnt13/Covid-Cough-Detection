@@ -7,7 +7,7 @@ echo "Device                : $2";
 echo "Model                 : $3";
 echo "Batch size (pretrain) : $4";
 echo "Batch size (finetune) : $5";
-echo "Load for finetune     : $6";
+echo "Cut                   : $6";
 echo "SEED                  : $7";
 echo "--------------";
 
@@ -32,13 +32,15 @@ BSfinetune=$5
 
 TASK="contrastive"
 ARGS="0.1"
-CUT=15
-PREFIX="ctrs_cut$CUT_$6"
+CUT=$6
+PREFIX="ctrs_cut${CUT}"
 
-EPOCH1=10000 # pretrain
-EPOCH2=1000 # finetune
+EPOCH1=1 # pretrain
+EPOCH2=3 # finetune
 
 POS_WEIGHT=0.6
+
+FINETUNEwith=last # or best `val_loss`
 
 # all arguments is defined in config.py Config
 # careful overwrite will delete everything in the exist folder
@@ -74,7 +76,7 @@ python cough/train.py \
   -steps_priming 1000 \
   -ncpu $NCPU \
   -monitor val_f1 \
-  -load $6 \
+  -load $FINETUNEwith \
   --oversampling \
   --pseudolabel
 

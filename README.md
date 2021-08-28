@@ -66,10 +66,8 @@ Arguments:
 * $3: Model
 * $4: Batch size (pretrain)
 * $5: Batch size (finetune)
-* $6: Mixup (pretrain)
-* $7: Mixup (finetune)
-* $8: NCPU
-* $9: SEED
+* $6: cut
+* $7: seed
 
 > Train with different mixup ratio for pretrain and finetune
 
@@ -79,14 +77,14 @@ export BATCH1=5
 export BATCH2=8
 export NCPU=4
 
-./run_contrastive.sh $COVIPATH cuda:0 contrastive_ecapa $BATCH1 $BATCH2 0.8 0.6 $NCPU 111
-./run_contrastive.sh $COVIPATH cuda:0 contrastive_ecapa $BATCH1 $BATCH2 0.8 0.0 $NCPU 111
-./run_contrastive.sh $COVIPATH cuda:0 contrastive_ecapa $BATCH1 $BATCH2 0.0 0.6 $NCPU 111
-./run_contrastive.sh $COVIPATH cuda:0 contrastive_ecapa $BATCH1 $BATCH2 0.0 0.0 $NCPU 111
+./run_contrastive.sh $COVIPATH cuda:0 contrastive_ecapa $BATCH1 $BATCH2 15 111
+./run_contrastive.sh $COVIPATH cuda:0 contrastive_ecapa $BATCH1 $BATCH2 15 111
+./run_contrastive.sh $COVIPATH cuda:0 contrastive_ecapa $BATCH1 $BATCH2 15 111
+./run_contrastive.sh $COVIPATH cuda:0 contrastive_ecapa $BATCH1 $BATCH2 15 111
 
-./run_contrastive.sh $COVIPATH cuda:0 contrastive_xvec $BATCH1 $BATCH2 0.8 0.6 $NCPU 111
-./run_contrastive.sh $COVIPATH cuda:0 contrastive_xvec $BATCH1 $BATCH2 0.8 0.0 $NCPU 111
-./run_contrastive.sh $COVIPATH cuda:0 contrastive_xvec $BATCH1 $BATCH2 0.0 0.6 $NCPU 111
-./run_contrastive.sh $COVIPATH cuda:0 contrastive_xvec $BATCH1 $BATCH2 0.0 0.0 $NCPU 111
+./run_contrastive.sh $COVIPATH cuda:0 contrastive_xvec $BATCH1 $BATCH2 15 111
+./run_contrastive.sh $COVIPATH cuda:0 contrastive_xvec $BATCH1 $BATCH2 15 111
+./run_contrastive.sh $COVIPATH cuda:0 contrastive_xvec $BATCH1 $BATCH2 15 111
+./run_contrastive.sh $COVIPATH cuda:0 contrastive_xvec $BATCH1 $BATCH2 15 111
 
 ```

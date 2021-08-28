@@ -214,24 +214,28 @@ def get_model_path(model,
   if not os.path.exists(path):
     os.makedirs(path)
   print(' * Save model at path:', path)
-  # higher is better
-  checkpoints = glob.glob(f'{path}/**/model-*.ckpt', recursive=True)
-  pattern = f'{load_key}(=\d+\.\d+)?'
-  checkpoints = list(filter(lambda s: len(re.findall(pattern, s)) > 0,
-                            checkpoints))
-  if len(checkpoints) > 0:
-    if 'loss' in load_key:
-      reverse = False  # smaller better
-    else:
-      reverse = True  # higher better
-    best_path = sorted(
-      checkpoints,
-      key=lambda p: float(
-        next(re.finditer(pattern, p)).group().split('=')[-1]),
-      reverse=reverse)
-    best_path = best_path[CFG.top]
+  best_path = None
+  if load_key == 'last':
+    checkpoints = glob.glob(f'{path}/**/last*.ckpt', recursive=True)
+    if len(checkpoints) > 0:
+      best_path = checkpoints[0]
   else:
-    best_path = None
+    # higher is better
+    checkpoints = glob.glob(f'{path}/**/model-*.ckpt', recursive=True)
+    pattern = f'{load_key}=\d+\.\d+'
+    checkpoints = list(filter(lambda s: len(re.findall(pattern, s)) > 0,
+                              checkpoints))
+    if len(checkpoints) > 0:
+      if 'loss' in load_key:
+        reverse = False  # smaller better
+      else:
+        reverse = True  # higher better
+      best_path = sorted(
+        checkpoints,
+        key=lambda p: float(
+          next(re.finditer(pattern, p)).group().split('=')[-1]),
+        reverse=reverse)
+      best_path = best_path[CFG.top]
   print(' * Best model at path:', best_path)
   return path, best_path
 
@@ -401,6 +405,13 @@ def train_covid_detector(model: CoughModel,
   if CFG.debug:
     torch.autograd.set_detect_anomaly(True)
 
+  checkpoint = pl.callbacks.ModelCheckpoint(
+    filename='model-{%s:.2f}' % monitor,
+    monitor=monitor,
+    mode='max',
+    save_top_k=20,
+    verbose=True)
+
   model = TrainModule(model, target=target)
   trainer = pl.Trainer(
     gpus=1,
@@ -408,13 +419,7 @@ def train_covid_detector(model: CoughModel,
     gradient_clip_val=CFG.grad_clip,
     gradient_clip_algorithm='norm',
     callbacks=[
-      pl.callbacks.ModelCheckpoint(filename='model-{%s:.2f}' % monitor,
-                                   monitor=monitor,
-                                   mode='max',
-                                   save_top_k=20,
-                                   verbose=True),
-      pl.callbacks.ModelCheckpoint(save_last=True,
-                                   verbose=True),
+      checkpoint,
       pl.callbacks.EarlyStopping(monitor,
                                  mode='max',
                                  patience=CFG.patience,
@@ -422,7 +427,7 @@ def train_covid_detector(model: CoughModel,
       TerminateOnNaN(),
     ],
     max_epochs=CFG.epochs,
-    val_check_interval=0.8,
+    val_check_interval=0.6,
     resume_from_checkpoint=best_path,
   )
   # int(300 / (CFG.bs / 16))
@@ -473,6 +478,12 @@ def train_contrastive(model: CoughModel,
                      is_training=False, drop_last=True)
            for i in valid]
 
+  checkpoint = pl.callbacks.ModelCheckpoint(save_last=True,
+                                            every_n_epochs=1,
+                                            save_on_train_epoch_end=True,
+                                            monitor=None,
+                                            verbose=True)
+
   model = ContrastiveModule(model)
   trainer = pl.Trainer(
     gpus=1,
@@ -480,12 +491,7 @@ def train_contrastive(model: CoughModel,
     gradient_clip_val=CFG.grad_clip,
     gradient_clip_algorithm='norm',
     callbacks=[
-      pl.callbacks.ModelCheckpoint(filename='model-{val_loss:.2f}',
-                                   monitor='val_loss',
-                                   mode='min',
-                                   save_last=True,
-                                   save_top_k=20,
-                                   verbose=True),
+      checkpoint,
       pl.callbacks.EarlyStopping('val_loss',
                                  mode='min',
                                  patience=CFG.patience,
@@ -493,7 +499,7 @@ def train_contrastive(model: CoughModel,
       TerminateOnNaN(),
     ],
     max_epochs=CFG.epochs,
-    val_check_interval=0.8,
+    val_check_interval=1.0,
     resume_from_checkpoint=best_path,
   )
 
