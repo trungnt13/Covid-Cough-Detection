@@ -55,7 +55,6 @@ python cough/train.py \
   -random_cut $CUT \
   -lr 0.0008 \
   -epochs $EPOCH1 \
-  -steps_priming 200 \
   -ncpu $NCPU \
   --pseudolabel \
   --overwrite

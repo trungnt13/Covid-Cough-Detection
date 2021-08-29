@@ -533,7 +533,10 @@ class ContrastiveLearner(SimpleClassifier):
                min_coef=1e-8,
                *args,
                **kwargs):
+    # no priming
+    kwargs.pop('n_steps_priming', None)
     super(ContrastiveLearner, self).__init__(
+      n_steps_priming=0,
       mix_noise=True,
       snr_noise=20.,
       perturb_prob=0.98,
@@ -549,6 +552,8 @@ class ContrastiveLearner(SimpleClassifier):
       drop_chunk_noise_factor=0.,
       *args,
       **kwargs)
+    self.set_pretrained_params(trainable=True)
+
     self.rand = np.random.RandomState(SEED)
     self.fn_bce_reduce = nn.BCEWithLogitsLoss()
     self.fn_bce_none = nn.BCEWithLogitsLoss(reduction="none")
